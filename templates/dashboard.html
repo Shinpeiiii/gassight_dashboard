@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>GASsight Dashboard</title>
+
+<!-- PWA -->
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#dc3545">
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+
+<style>
+body { background-color: #f8faf9; }
+.card { border-radius: 1rem; }
+#map { height: 400px; border-radius: 1rem; }
+.toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 2000; }
+.high-row { background-color: #fde8e8 !important; }
+
+.logo {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  object-fit: cover;
+  background-color: #fff;
+  border: 3px solid #e0e0e0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  padding: 4px;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.logo:hover {
+  transform: scale(1.08);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+
+/* ALERT badge */
+.alert-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.5rem;
+  font-weight: 700;
+  background: #dc3545;
+  color: #fff;
+  cursor: pointer;
+  animation: pulseBadge 1.4s infinite;
+}
+.alert-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: #fff;
+  animation: blink 1s infinite;
+}
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.2; } }
+@keyframes pulseBadge {
+  0% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.45); }
+  70% { box-shadow: 0 0 0 10px rgba(220, 53, 69, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
+}
+
+/* High Severity Modal */
+#highList button.list-group-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+#highList img.thumb {
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 2px solid #eee;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+#highList img.thumb:hover { transform: scale(1.05); }
+
+/* Lightbox controls */
+.lightbox-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(0, 0, 0, 0.5);
+  border: none;
+  color: white;
+  font-size: 2rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 50%;
+  cursor: pointer;
+  z-index: 10;
+}
+.lightbox-btn:hover { background: rgba(0, 0, 0, 0.8); }
+#prevBtn { left: 10px; }
+#nextBtn { right: 10px; }
+</style>
+</head>
+
+<body class="p-4">
+<div class="container-fluid">
+  <!-- Header -->
+  <div class="d-flex align-items-center mb-4 justify-content-between flex-wrap gap-2">
+    <div class="d-flex align-items-center gap-3 flex-wrap">
+<img src="{{ url_for('static', filename='images/snail-logo.jpg') }}"
+     alt="GASsight Logo"
+     class="logo shadow-sm">
+
+  <div>
+    <h3 class="m-0 d-flex align-items-center gap-2">
+      GASsight Dashboard
+      <span id="alertIndicator" class="alert-indicator d-none">
+        <span class="alert-dot"></span> ALERT
+      </span>
+    </h3>
+    <small class="text-muted">Golden Apple Snail Geo-tagging & Visualization</small>
+  </div>
+</div>
+
+    <!-- Controls -->
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <div id="refreshStatus">Last updated: <span id="lastUpdate">–</span></div>
+      <button id="manualRefresh" class="btn btn-sm btn-outline-primary">Refresh Now</button>
+      <select id="refreshInterval" class="form-select form-select-sm" style="width:auto">
+        <option value="off" selected>Auto Refresh: Off</option>
+        <option value="30">Every 30s</option>
+        <option value="60">Every 1min</option>
+        <option value="300">Every 5min</option>
+      </select>
+
+      {% if current_user.is_authenticated %}
+      <div class="dropdown">
+        <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
+          {{ current_user.username }}
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li class="dropdown-item-text small text-muted">Signed in as <strong>{{ current_user.username }}</strong></li>
+          <li><hr class="dropdown-divider"></li>
+          <li><a class="dropdown-item" href="{{ url_for('logout') }}">Logout</a></li>
+        </ul>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+<div class="card mb-4">
+  <div class="card-body row g-3 align-items-end">
+    <div class="col-md-3">
+      <label class="form-label fw-semibold">Barangay</label>
+      <select id="barangayFilter" class="form-select">
+        <option value="All">All</option>
+      </select>
+    </div>
+
+    <div class="col-md-3">
+      <label class="form-label fw-semibold">Severity</label>
+      <select id="severityFilter" class="form-select">
+        <option value="All">All</option>
+        <option value="Low">Low</option>
+        <option value="Moderate">Moderate</option>
+        <option value="High">High</option>
+      </select>
+    </div>
+
+    <div class="col-md-3">
+      <label class="form-label fw-semibold">Date Range</label>
+      <input type="date" id="startDate" class="form-control mb-1" />
+      <input type="date" id="endDate" class="form-control" />
+    </div>
+
+    <div class="col-md-3 text-md-start text-center">
+      <button id="filterBtn" class="btn btn-success w-100">
+        <i class="bi bi-funnel"></i> Apply Filter
+      </button>
+    </div>
+  </div>
+</div>
+
+
+  <!-- KPIs -->
+  <div class="row g-3 mb-4">
+    <div class="col-md-3"><div class="card text-center"><div class="card-body"><h6>Total Sightings</h6><h2 id="totalSightings">0</h2></div></div></div>
+    <div class="col-md-3"><div class="card text-center"><div class="card-body"><h6>Active Hotspots</h6><h2 id="activeHotspots">0</h2></div></div></div>
+    <div class="col-md-3"><div class="card text-center"><div class="card-body"><h6>Active Reporters</h6><h2 id="activeReporters">0</h2></div></div></div>
+    <div class="col-md-3"><div class="card text-center"><div class="card-body"><h6>Avg Response Time (hrs)</h6><h2 id="avgResponse">0</h2></div></div></div>
+  </div>
+
+  <!-- Map -->
+  <div class="card mb-4 border-danger">
+    <div class="card-header fw-semibold text-danger">Infestation Heatmap</div>
+    <div class="card-body p-0 position-relative"><div id="map"></div></div>
+  </div>
+
+  <!-- Charts -->
+  <div class="row g-3 mb-4">
+    <div class="col-md-4"><div class="card"><div class="card-header fw-semibold">Severity Distribution</div><div class="card-body"><canvas id="severityChart"></canvas></div></div></div>
+    <div class="col-md-4"><div class="card"><div class="card-header fw-semibold">Barangay Reports</div><div class="card-body"><canvas id="barangayChart"></canvas></div></div></div>
+    <div class="col-md-4"><div class="card"><div class="card-header fw-semibold">Weekly Trend</div><div class="card-body"><canvas id="trendChart"></canvas></div></div></div>
+  </div>
+
+  <!-- Table -->
+  <div class="card mt-4 border-light">
+    <div class="card-header fw-semibold">Recent Reports</div>
+    <div class="card-body table-responsive">
+      <table class="table table-sm align-middle">
+  <thead>
+    <tr>
+      <th>Date</th>
+      <th>Reporter</th>
+      <th>Location</th>
+      <th>Severity</th>
+      <th>Photo</th>
+      <th>Status</th>
+      <th>Action</th>
+    </tr>
+  </thead>
+  <tbody id="reportTable"></tbody>
+</table>
+
+
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- High Severity Modal -->
+<div class="modal fade" id="highModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title">High Severity Hotspots</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body"><div class="list-group" id="highList"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Lightbox -->
+<div class="modal fade" id="imageModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content bg-dark position-relative">
+      <button id="prevBtn" class="lightbox-btn">&#8249;</button>
+      <img id="fullImage" class="w-100 rounded" alt="Full view">
+      <button id="nextBtn" class="lightbox-btn">&#8250;</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+let allReports = [], filteredReports = [], map, heatLayer, charts = {}, lightboxImages = [], lightboxIndex = 0, refreshTimer;
+
+// Toast helper
+function showToast(msg, type='success'){
+  const c=document.getElementById('toastContainer');
+  const t=document.createElement('div');
+  t.className=`toast align-items-center text-bg-${type} border-0`;
+  t.innerHTML=`<div class='d-flex'><div class='toast-body'>${msg}</div><button type='button' class='btn-close btn-close-white me-2 m-auto' data-bs-dismiss='toast'></button></div>`;
+  c.appendChild(t);
+  const bs=new bootstrap.Toast(t,{delay:3000});
+  bs.show();
+  t.addEventListener('hidden.bs.toast',()=>t.remove());
+}
+
+async function fetchJSON(url) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    return JSON.parse(text);
+  } catch (e) {
+    console.error(`❌ Fetch error for ${url}:`, e);
+    showToast(`Failed to load data from ${url}`, 'danger');
+    return [];
+  }
+}
+
+function setAlertIndicator(a){document.getElementById('alertIndicator').classList.toggle('d-none',!a);}
+function updateTimestamp(){document.getElementById('lastUpdate').innerText=new Date().toLocaleTimeString();}
+
+// Load barangays for dropdown
+async function loadBarangays(){
+  const brg = await fetchJSON('/api/barangays');
+  const sel = document.getElementById('barangayFilter');
+  sel.innerHTML = '<option value="All">All</option>' + (Array.isArray(brg)?brg.map(b=>`<option>${b}</option>`).join(''):'');
+}
+
+// KPI update
+async function updateKpis(){
+  const k=await fetchJSON('/api/kpis');
+  totalSightings.innerText=k.total_sightings||0;
+  activeHotspots.innerText=k.active_hotspots||0;
+  activeReporters.innerText=k.active_reporters||0;
+  avgResponse.innerText=k.avg_response_time||0;
+}
+
+// Chart update
+async function updateCharts(){
+  const sev=await fetchJSON('/api/severity-distribution');
+  const brg=await fetchJSON('/api/barangay-reports');
+  const trn=await fetchJSON('/api/trend');
+  charts.severity?.destroy(); charts.barangay?.destroy(); charts.trend?.destroy();
+
+  charts.severity=new Chart(severityChart,{type:'pie',
+    data:{labels:Object.keys(sev),datasets:[{data:Object.values(sev),backgroundColor:['#7cb342','#fbc02d','#e53935']}]}
+  });
+  charts.barangay=new Chart(barangayChart,{type:'bar',
+    data:{labels:brg.map(x=>x.name),datasets:[{label:'Reports',data:brg.map(x=>x.reports),backgroundColor:'#42a5f5'}]},
+    options:{plugins:{legend:{display:false}}}});
+  charts.trend=new Chart(trendChart,{type:'line',
+    data:{labels:trn.map(x=>x.week),datasets:[{label:'Sightings',data:trn.map(x=>x.sightings),borderColor:'#d32f2f',tension:0.3}]},
+    options:{plugins:{legend:{display:false}}}});
+}
+
+// Fetch reports
+async function updateReports() {
+  const data = await fetchJSON('/api/reports');
+  allReports = Array.isArray(data) ? data : data.reports || [];
+  applyFilters();
+}
+
+// Filtering logic
+function applyFilters(){
+  const barangay=document.getElementById('barangayFilter').value;
+  const severity=document.getElementById('severityFilter').value;
+  const start=document.getElementById('startDate').value;
+  const end=document.getElementById('endDate').value;
+
+  filteredReports = allReports.filter(r=>{
+    const matchBrg=(barangay==='All'||r.barangay===barangay);
+    const matchSev=(severity==='All'||r.severity===severity);
+    const matchDate=(!start||r.date>=start)&&(!end||r.date<=end);
+    return matchBrg&&matchSev&&matchDate;
+  });
+
+  document.getElementById("filterBtn").addEventListener("click", () => {
+  applyFilters();
+  showToast("Filters applied successfully", "info");
+});
+
+  renderTable();
+  renderMap();
+}
+
+function renderTable() {
+  const t = document.getElementById('reportTable');
+  if (!t) return;
+
+  if (!filteredReports.length) {
+    t.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No reports available</td></tr>';
+    return;
+  }
+
+  t.innerHTML = filteredReports.map(r => `
+    <tr class="${r.severity === 'High' ? 'high-row' : ''}">
+      <td>${r.date || ''}</td>
+      <td>${r.reporter || ''}</td>
+      <td>${r.barangay && r.municipality ? `${r.barangay}, ${r.municipality}` : ''}</td>
+      <td>${r.severity || ''}</td>
+      <td>
+        ${r.photo
+          ? `<img src="${r.photo}" alt="photo" style="width:60px;height:60px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="openImage('${r.photo}')">`
+          : '<span class="text-muted">No photo</span>'}
+      </td>
+      <td>${r.status || ''}</td>
+      <td>
+        ${r.status === 'Pending'
+          ? `
+            <button class="btn btn-sm btn-success" onclick="updateStatus(${r.id}, 'Verified')">✅ Verify</button>
+            <button class="btn btn-sm btn-danger" onclick="updateStatus(${r.id}, 'Rejected')">❌ Reject</button>
+          `
+          : `
+            <select class="form-select form-select-sm action-dropdown" 
+                    data-id="${r.id}" 
+                    onchange="updateResolutionStatus(this)">
+              <option value="">Select Status</option>
+              <option value="Solved">Solved</option>
+              <option value="Not Been Solved Yet">Not Been Solved Yet</option>
+            </select>
+          `}
+      </td>
+    </tr>
+  `).join('');
+}
+
+function updateResolutionStatus(selectElement) {
+  const reportId = selectElement.dataset.id;
+  const resolution = selectElement.value;
+
+  // Show quick feedback
+  showToast(`Report #${reportId}: marked as "${resolution}"`, 'info');
+
+  // Optional backend update
+  fetch(`/api/report/${reportId}/resolution`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ resolution_status: resolution })
+  })
+  .then(res => res.json())
+  .then(data => console.log("Resolution updated:", data))
+  .catch(err => console.error("Error updating resolution:", err));
+}
+
+function openImage(url){
+  const full=document.getElementById('fullImage');
+  full.src=url;
+  new bootstrap.Modal(document.getElementById('imageModal')).show();
+}
+
+function viewDetails(id){
+  const r = allReports.find(x=>x.id===id);
+  if(!r) return;
+  const html = `
+    <div><b>Date:</b> ${r.date}</div>
+    <div><b>Reporter:</b> ${r.reporter}</div>
+    <div><b>Location:</b> ${r.barangay}, ${r.municipality}</div>
+    <div><b>Severity:</b> ${r.severity}</div>
+    <div><b>Status:</b> ${r.status}</div>
+    ${r.photo ? `<img src="${r.photo}" class="w-100 mt-2 rounded">` : ''}
+  `;
+  const modal = new bootstrap.Modal(document.createElement('div'));
+  modal._element.className='modal fade';
+  modal._element.innerHTML=`
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Report #${id}</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">${html}</div>
+    </div></div>`;
+  document.body.appendChild(modal._element);
+  modal.show();
+  modal._element.addEventListener('hidden.bs.modal',()=>modal._element.remove());
+}
+
+// Map render
+function renderMap(){
+  const pts=filteredReports.filter(r=>r.lat&&r.lng)
+    .map(r=>[r.lat,r.lng,r.severity==='High'?1:r.severity==='Moderate'?0.6:0.3]);
+  if(heatLayer) map.removeLayer(heatLayer);
+  heatLayer=L.heatLayer(pts,{radius:25,blur:15}).addTo(map);
+  const highs=filteredReports.filter(r=>r.severity==='High');
+  setAlertIndicator(highs.length>0);
+}
+
+// Map initialization
+function initMap(){
+  map=L.map('map').setView([16.63,120.33],10);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+}
+
+// Auto refresh
+function setAutoRefresh(){
+  clearInterval(refreshTimer);
+  const val=document.getElementById('refreshInterval').value;
+  if(val==='off') return;
+  refreshTimer=setInterval(refreshDashboard,parseInt(val)*1000);
+}
+
+// Dashboard refresh
+async function refreshDashboard(){
+  await updateReports();
+  await updateKpis();
+  await updateCharts();
+  updateTimestamp();
+}
+
+// Init
+async function init(){
+  initMap();
+  await loadBarangays();
+  await refreshDashboard();
+  showToast('Dashboard loaded','info');
+  updateTimestamp();
+
+  document.getElementById('barangayFilter').onchange=applyFilters;
+  document.getElementById('severityFilter').onchange=applyFilters;
+  document.getElementById('startDate').onchange=applyFilters;
+  document.getElementById('endDate').onchange=applyFilters;
+  document.getElementById('manualRefresh').onclick=refreshDashboard;
+  document.getElementById('refreshInterval').onchange=setAutoRefresh;
+}
+
+init();
+
+async function updateStatus(id, newStatus){
+  try{
+    const res=await fetch(`/api/report/${id}/status`,{
+      method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({status:newStatus})
+    });
+    if(res.ok){
+      showToast(`✅ Report #${id} marked as ${newStatus}`,'success');
+      await refreshDashboard();
+    }else showToast('❌ Failed to update status','danger');
+  }catch(e){
+    console.error(e);
+    showToast('⚠️ Error updating report','danger');
+  }
+}
+
+// Make ALERT indicator open a list and zoom map to reports
+document.getElementById('alertIndicator').onclick = () => {
+  const highs = allReports.filter(r => r.severity === 'High');
+  const list = document.getElementById('highList');
+  
+  if (!highs.length) {
+    list.innerHTML = '<p class="text-center">No high-severity reports.</p>';
+    return;
+  }
+
+  // Save all photo URLs for lightbox preview
+  lightboxImages = highs.filter(r => r.photo).map(r => r.photo);
+
+  // Populate the list of high-severity reports
+  list.innerHTML = highs.map((r, i) => `
+    <button class="list-group-item list-group-item-action d-flex align-items-center gap-3" data-index="${i}">
+      <img src="${r.photo || 'https://via.placeholder.com/64?text=No+Photo'}" 
+           class="thumb" 
+           data-photo="${r.photo || ''}" />
+      <div>
+        <strong>${r.barangay}</strong> (${r.municipality})<br>
+        <small>${r.date}</small>
+      </div>
+    </button>
+  `).join('');
+
+  // Show modal
+  const modal = new bootstrap.Modal(document.getElementById('highModal'));
+  modal.show();
+
+  // Add click event for each list button
+  list.querySelectorAll('button').forEach((btn) => {
+    btn.onclick = (e) => {
+      const r = highs[btn.dataset.index];
+      modal.hide(); // Close the modal
+
+      // Center map on this report's location
+      if (r.lat && r.lng) {
+        map.setView([r.lat, r.lng], 14, { animate: true });
+
+        // Add a red marker and popup
+        L.circleMarker([r.lat, r.lng], {
+          radius: 10,
+          color: 'red',
+          fillColor: '#f03',
+          fillOpacity: 0.7
+        }).addTo(map)
+          .bindPopup(`<b>${r.barangay}, ${r.municipality}</b><br>Date: ${r.date}`)
+          .openPopup();
+      } else {
+        showToast('⚠️ This report has no location data.', 'warning');
+      }
+    };
+  });
+
+  // Add click event for photo thumbnails to open lightbox
+  list.querySelectorAll('img.thumb').forEach(img => {
+    img.onclick = (e) => {
+      e.stopPropagation();
+      if (img.dataset.photo) {
+        openLightbox(lightboxImages.indexOf(img.dataset.photo));
+      }
+    };
+  });
+};
+
+
+</script>
+
+
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+
+
+</body>
+</html>
