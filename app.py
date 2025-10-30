@@ -22,7 +22,8 @@ from flask_cors import CORS
 # App setup
 # -----------------------------
 app = Flask(__name__, static_folder='static', template_folder='templates')
-CORS(app)  # allow mobile/web to call /api/*
+CORS(app, resources={r"/api/*": {"origins": "*"}})
+
 
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-change-me')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///gassight.db')
