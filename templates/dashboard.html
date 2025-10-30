@@ -255,7 +255,7 @@ body { background-color: #f8faf9; }
 <script>
 const BASE_URL = window.location.hostname.includes("localhost") || window.location.hostname.includes("127.0.0.1")
   ? "http://127.0.0.1:5000"
-  : "https://gassight.onrender.com";
+  : ""; // Use relative paths when deployed on Render
 
 let allReports = [], filteredReports = [], map, heatLayer, charts = {}, refreshTimer;
 
@@ -459,10 +459,6 @@ async function updateStatus(id, newStatus) {
   }
 }
 </script>
-
-
-
-
 
 <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 
