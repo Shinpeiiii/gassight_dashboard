@@ -1,15 +1,11 @@
-const CACHE_NAME = "gassight-cache-v3";
+const CACHE_NAME = "gassight-cache-v4";
 const OFFLINE_FALLBACK = "/offline";
 
+// Only static assets should be pre-cached (not APIs)
 const OFFLINE_URLS = [
   "/",
   "/loading",
   OFFLINE_FALLBACK,
-  "/api/reports",
-  "/api/kpis",
-  "/api/severity-distribution",
-  "/api/barangay-reports",
-  "/api/trend",
   "/static/manifest.json",
   "/static/icons/icon-192.png",
   "/static/icons/icon-512.png",
@@ -24,7 +20,9 @@ const OFFLINE_URLS = [
 
 self.addEventListener("install", (event) => {
   console.log("[Service Worker] Installing...");
-  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(OFFLINE_URLS)));
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(cache => cache.addAll(OFFLINE_URLS))
+  );
 });
 
 self.addEventListener("activate", (event) => {
@@ -34,21 +32,39 @@ self.addEventListener("activate", (event) => {
       Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
     )
   );
+  return self.clients.claim();
 });
 
 self.addEventListener("fetch", (event) => {
+  const url = new URL(event.request.url);
+
+  // 🚫 Never cache dynamic API data
+  if (url.pathname.startsWith("/api/")) {
+    event.respondWith(
+      fetch(event.request)
+        .then(response => response)
+        .catch(() => caches.match(OFFLINE_FALLBACK))
+    );
+    return;
+  }
+
+  // ✅ For static assets, use cache-first strategy
   event.respondWith(
-    fetch(event.request)
-      .then(response => {
-        const clone = response.clone();
-        caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-        return response;
-      })
-      .catch(() => {
-        return caches.match(event.request).then(cached => {
-          if (cached) return cached;
-          if (event.request.mode === "navigate") return caches.match(OFFLINE_FALLBACK);
-        });
-      })
+    caches.match(event.request).then(cached => {
+      return (
+        cached ||
+        fetch(event.request)
+          .then(response => {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+            return response;
+          })
+          .catch(() => {
+            if (event.request.mode === "navigate") {
+              return caches.match(OFFLINE_FALLBACK);
+            }
+          })
+      );
+    })
   );
 });
