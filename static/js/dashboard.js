@@ -120,7 +120,9 @@ function updateKPIs(reports) {
   // Average response time (if exists)
   const validReports = reports.filter((r) => r.response_time_hours);
   if (validReports.length > 0) {
-    const avg = validReports.reduce((a, b) => a + b.response_time_hours, 0) / validReports.length;
+    const avg =
+      validReports.reduce((a, b) => a + b.response_time_hours, 0) /
+      validReports.length;
     document.getElementById('avgResponse').textContent = Math.round(avg);
   } else {
     document.getElementById('avgResponse').textContent = 0;
@@ -143,7 +145,8 @@ function renderMap() {
       r.severity === 'High' ? 1 : r.severity === 'Moderate' ? 0.6 : 0.3,
     ]);
   if (heatLayer) map.removeLayer(heatLayer);
-  if (pts.length > 0) heatLayer = L.heatLayer(pts, { radius: 25, blur: 15 }).addTo(map);
+  if (pts.length > 0)
+    heatLayer = L.heatLayer(pts, { radius: 25, blur: 15 }).addTo(map);
 }
 
 // ============ CHARTS ============
@@ -162,7 +165,12 @@ async function updateCharts() {
       type: 'pie',
       data: {
         labels: Object.keys(sevData),
-        datasets: [{ data: Object.values(sevData), backgroundColor: ['#7cb342','#fbc02d','#e53935'] }],
+        datasets: [
+          {
+            data: Object.values(sevData),
+            backgroundColor: ['#7cb342', '#fbc02d', '#e53935'],
+          },
+        ],
       },
     });
   }
@@ -173,7 +181,13 @@ async function updateCharts() {
       type: 'bar',
       data: {
         labels: brgData.map((x) => x.name),
-        datasets: [{ label: 'Reports', data: brgData.map((x) => x.reports), backgroundColor: '#42a5f5' }],
+        datasets: [
+          {
+            label: 'Reports',
+            data: brgData.map((x) => x.reports),
+            backgroundColor: '#42a5f5',
+          },
+        ],
       },
       options: { plugins: { legend: { display: false } } },
     });
@@ -185,7 +199,14 @@ async function updateCharts() {
       type: 'line',
       data: {
         labels: trendData.map((x) => x.week),
-        datasets: [{ label: 'Sightings', data: trendData.map((x) => x.sightings), borderColor: '#d32f2f', tension: 0.3 }],
+        datasets: [
+          {
+            label: 'Sightings',
+            data: trendData.map((x) => x.sightings),
+            borderColor: '#d32f2f',
+            tension: 0.3,
+          },
+        ],
       },
       options: { plugins: { legend: { display: false } } },
     });
@@ -221,27 +242,56 @@ function showHighAlert(highReports) {
   alert.onclick = () => showHighReports(highReports);
 }
 
+// ✅ UPDATED FUNCTION
 function showHighReports(highReports) {
   const list = document.getElementById('highList');
   if (!list) return;
   list.innerHTML = '';
-  highReports.forEach((r) => {
+
+  highReports.forEach((r, index) => {
     const item = document.createElement('button');
-    item.className = 'list-group-item list-group-item-action d-flex align-items-center gap-3';
+    item.className =
+      'list-group-item list-group-item-action d-flex align-items-center gap-3';
     item.innerHTML = `
-      <img src="${r.photo || '/static/icons/icon-192.png'}" class="thumb"
-        style="width:64px;height:64px;border-radius:8px;object-fit:cover;border:2px solid #eee;">
-      <div><strong>${r.barangay || 'Unknown'}, ${r.municipality || ''}</strong><br>
-      <small>${r.date || ''} — ${r.reporter || ''}</small></div>`;
+      <img src="${
+        r.photo && r.photo.trim() !== '' ? r.photo : '/static/icons/icon-192.png'
+      }"
+           class="thumb"
+           style="width:64px;height:64px;border-radius:8px;object-fit:cover;border:2px solid #eee;">
+      <div>
+        <strong>${r.barangay || 'Unknown'}, ${r.municipality || ''}</strong><br>
+        <small>${r.date || ''} — ${r.reporter || ''}</small>
+      </div>
+    `;
+
+    // ✅ On click: close modal and zoom to location
     item.addEventListener('click', () => {
       if (r.lat && r.lng && map) {
-        const modal = bootstrap.Modal.getInstance(document.getElementById('highModal'));
-        if (modal) modal.hide();
-        map.setView([r.lat, r.lng], 14);
+        const modalEl = document.getElementById('highModal');
+        const modalInstance = bootstrap.Modal.getInstance(modalEl);
+        if (modalInstance) modalInstance.hide();
+
+        // Small delay for modal animation
+        setTimeout(() => {
+          map.setView([r.lat, r.lng], 15);
+
+          // Temporary marker with popup
+          const marker = L.marker([r.lat, r.lng]).addTo(map);
+          marker
+            .bindPopup(
+              `<strong>${r.barangay || ''}</strong><br>${r.reporter || ''}<br>${r.date || ''}`
+            )
+            .openPopup();
+
+          // Auto-remove marker after 5 seconds
+          setTimeout(() => map.removeLayer(marker), 5000);
+        }, 400);
       }
     });
+
     list.appendChild(item);
   });
+
   new bootstrap.Modal(document.getElementById('highModal')).show();
 }
 
