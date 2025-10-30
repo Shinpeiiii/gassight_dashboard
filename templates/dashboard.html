@@ -252,15 +252,13 @@ body { background-color: #f8faf9; }
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-
 <script>
-// 🛰️ AUTO-DETECT API BASE URL
-// Works locally (http://127.0.0.1:5000) and on Render (https://gassight.onrender.com)
 const BASE_URL = window.location.hostname.includes("localhost") || window.location.hostname.includes("127.0.0.1")
   ? "http://127.0.0.1:5000"
   : "https://gassight.onrender.com";
 
-// Toast helper
+let allReports = [], filteredReports = [], map, heatLayer, charts = {}, lightboxImages = [], lightboxIndex = 0, refreshTimer;
+
 function showToast(msg, type='success'){
   const c=document.getElementById('toastContainer');
   const t=document.createElement('div');
@@ -272,7 +270,6 @@ function showToast(msg, type='success'){
   t.addEventListener('hidden.bs.toast',()=>t.remove());
 }
 
-// ✅ Universal fetch helper
 async function fetchJSON(endpoint) {
   try {
     const res = await fetch(`${BASE_URL}${endpoint}`);
@@ -286,21 +283,15 @@ async function fetchJSON(endpoint) {
   }
 }
 
-// UI helpers
 function setAlertIndicator(a){document.getElementById('alertIndicator').classList.toggle('d-none',!a);}
 function updateTimestamp(){document.getElementById('lastUpdate').innerText=new Date().toLocaleTimeString();}
 
-// Load barangays for dropdown
 async function loadBarangays(){
   const brg = await fetchJSON('/api/barangays');
   const sel = document.getElementById('barangayFilter');
   sel.innerHTML = '<option value="All">All</option>' + (Array.isArray(brg)?brg.map(b=>`<option>${b}</option>`).join(''):'');
-
-  // ✅ Log to confirm working
-  console.log("✅ Barangays loaded:", brg);
 }
 
-// KPI update
 async function updateKpis(){
   const k=await fetchJSON('/api/kpis');
   totalSightings.innerText=k.total_sightings||0;
@@ -309,7 +300,6 @@ async function updateKpis(){
   avgResponse.innerText=k.avg_response_time||0;
 }
 
-// Chart update
 async function updateCharts(){
   const sev=await fetchJSON('/api/severity-distribution');
   const brg=await fetchJSON('/api/barangay-reports');
@@ -327,14 +317,12 @@ async function updateCharts(){
     options:{plugins:{legend:{display:false}}}});
 }
 
-// Fetch reports
 async function updateReports() {
   const data = await fetchJSON('/api/reports');
   allReports = Array.isArray(data) ? data : data.reports || [];
   applyFilters();
 }
 
-// Filtering logic
 function applyFilters(){
   const barangay=document.getElementById('barangayFilter').value;
   const severity=document.getElementById('severityFilter').value;
@@ -393,13 +381,10 @@ function renderTable() {
   `).join('');
 }
 
-// Resolution updater
 function updateResolutionStatus(selectElement) {
   const reportId = selectElement.dataset.id;
   const resolution = selectElement.value;
-
   showToast(`Report #${reportId}: marked as "${resolution}"`, 'info');
-
   fetch(`${BASE_URL}/api/report/${reportId}/resolution`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -410,7 +395,12 @@ function updateResolutionStatus(selectElement) {
   .catch(err => console.error("Error updating resolution:", err));
 }
 
-// Map rendering
+function openImage(url){
+  const full=document.getElementById('fullImage');
+  full.src=url;
+  new bootstrap.Modal(document.getElementById('imageModal')).show();
+}
+
 function renderMap(){
   const pts=filteredReports.filter(r=>r.lat&&r.lng)
     .map(r=>[r.lat,r.lng,r.severity==='High'?1:r.severity==='Moderate'?0.6:0.3]);
@@ -439,7 +429,6 @@ async function refreshDashboard(){
   updateTimestamp();
 }
 
-// INIT
 async function init(){
   initMap();
   await loadBarangays();
@@ -457,7 +446,6 @@ async function init(){
 
 init();
 
-// Status updater
 async function updateStatus(id, newStatus){
   try{
     const res=await fetch(`${BASE_URL}/api/report/${id}/status`,{
@@ -475,6 +463,7 @@ async function updateStatus(id, newStatus){
   }
 }
 </script>
+
 
 
 
