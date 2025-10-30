@@ -254,7 +254,11 @@ body { background-color: #f8faf9; }
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
-let allReports = [], filteredReports = [], map, heatLayer, charts = {}, lightboxImages = [], lightboxIndex = 0, refreshTimer;
+// 🛰️ AUTO-DETECT API BASE URL
+// Works locally (http://127.0.0.1:5000) and on Render (https://gassight.onrender.com)
+const BASE_URL = window.location.hostname.includes("localhost") || window.location.hostname.includes("127.0.0.1")
+  ? "http://127.0.0.1:5000"
+  : "https://gassight.onrender.com";
 
 // Toast helper
 function showToast(msg, type='success'){
@@ -268,19 +272,21 @@ function showToast(msg, type='success'){
   t.addEventListener('hidden.bs.toast',()=>t.remove());
 }
 
-async function fetchJSON(url) {
+// ✅ Universal fetch helper
+async function fetchJSON(endpoint) {
   try {
-    const res = await fetch(url);
+    const res = await fetch(`${BASE_URL}${endpoint}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
     return JSON.parse(text);
   } catch (e) {
-    console.error(`❌ Fetch error for ${url}:`, e);
-    showToast(`Failed to load data from ${url}`, 'danger');
+    console.error(`❌ Fetch error for ${endpoint}:`, e);
+    showToast(`Failed to load data from ${endpoint}`, 'danger');
     return [];
   }
 }
 
+// UI helpers
 function setAlertIndicator(a){document.getElementById('alertIndicator').classList.toggle('d-none',!a);}
 function updateTimestamp(){document.getElementById('lastUpdate').innerText=new Date().toLocaleTimeString();}
 
@@ -289,6 +295,9 @@ async function loadBarangays(){
   const brg = await fetchJSON('/api/barangays');
   const sel = document.getElementById('barangayFilter');
   sel.innerHTML = '<option value="All">All</option>' + (Array.isArray(brg)?brg.map(b=>`<option>${b}</option>`).join(''):'');
+
+  // ✅ Log to confirm working
+  console.log("✅ Barangays loaded:", brg);
 }
 
 // KPI update
@@ -339,11 +348,6 @@ function applyFilters(){
     return matchBrg&&matchSev&&matchDate;
   });
 
-  document.getElementById("filterBtn").addEventListener("click", () => {
-  applyFilters();
-  showToast("Filters applied successfully", "info");
-});
-
   renderTable();
   renderMap();
 }
@@ -389,15 +393,14 @@ function renderTable() {
   `).join('');
 }
 
+// Resolution updater
 function updateResolutionStatus(selectElement) {
   const reportId = selectElement.dataset.id;
   const resolution = selectElement.value;
 
-  // Show quick feedback
   showToast(`Report #${reportId}: marked as "${resolution}"`, 'info');
 
-  // Optional backend update
-  fetch(`/api/report/${reportId}/resolution`, {
+  fetch(`${BASE_URL}/api/report/${reportId}/resolution`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ resolution_status: resolution })
@@ -407,37 +410,7 @@ function updateResolutionStatus(selectElement) {
   .catch(err => console.error("Error updating resolution:", err));
 }
 
-function openImage(url){
-  const full=document.getElementById('fullImage');
-  full.src=url;
-  new bootstrap.Modal(document.getElementById('imageModal')).show();
-}
-
-function viewDetails(id){
-  const r = allReports.find(x=>x.id===id);
-  if(!r) return;
-  const html = `
-    <div><b>Date:</b> ${r.date}</div>
-    <div><b>Reporter:</b> ${r.reporter}</div>
-    <div><b>Location:</b> ${r.barangay}, ${r.municipality}</div>
-    <div><b>Severity:</b> ${r.severity}</div>
-    <div><b>Status:</b> ${r.status}</div>
-    ${r.photo ? `<img src="${r.photo}" class="w-100 mt-2 rounded">` : ''}
-  `;
-  const modal = new bootstrap.Modal(document.createElement('div'));
-  modal._element.className='modal fade';
-  modal._element.innerHTML=`
-    <div class="modal-dialog"><div class="modal-content">
-      <div class="modal-header"><h5 class="modal-title">Report #${id}</h5>
-      <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-      <div class="modal-body">${html}</div>
-    </div></div>`;
-  document.body.appendChild(modal._element);
-  modal.show();
-  modal._element.addEventListener('hidden.bs.modal',()=>modal._element.remove());
-}
-
-// Map render
+// Map rendering
 function renderMap(){
   const pts=filteredReports.filter(r=>r.lat&&r.lng)
     .map(r=>[r.lat,r.lng,r.severity==='High'?1:r.severity==='Moderate'?0.6:0.3]);
@@ -447,13 +420,11 @@ function renderMap(){
   setAlertIndicator(highs.length>0);
 }
 
-// Map initialization
 function initMap(){
   map=L.map('map').setView([16.63,120.33],10);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 }
 
-// Auto refresh
 function setAutoRefresh(){
   clearInterval(refreshTimer);
   const val=document.getElementById('refreshInterval').value;
@@ -461,7 +432,6 @@ function setAutoRefresh(){
   refreshTimer=setInterval(refreshDashboard,parseInt(val)*1000);
 }
 
-// Dashboard refresh
 async function refreshDashboard(){
   await updateReports();
   await updateKpis();
@@ -469,7 +439,7 @@ async function refreshDashboard(){
   updateTimestamp();
 }
 
-// Init
+// INIT
 async function init(){
   initMap();
   await loadBarangays();
@@ -487,9 +457,10 @@ async function init(){
 
 init();
 
+// Status updater
 async function updateStatus(id, newStatus){
   try{
-    const res=await fetch(`/api/report/${id}/status`,{
+    const res=await fetch(`${BASE_URL}/api/report/${id}/status`,{
       method:'PUT',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({status:newStatus})
@@ -503,75 +474,8 @@ async function updateStatus(id, newStatus){
     showToast('⚠️ Error updating report','danger');
   }
 }
-
-// Make ALERT indicator open a list and zoom map to reports
-document.getElementById('alertIndicator').onclick = () => {
-  const highs = allReports.filter(r => r.severity === 'High');
-  const list = document.getElementById('highList');
-  
-  if (!highs.length) {
-    list.innerHTML = '<p class="text-center">No high-severity reports.</p>';
-    return;
-  }
-
-  // Save all photo URLs for lightbox preview
-  lightboxImages = highs.filter(r => r.photo).map(r => r.photo);
-
-  // Populate the list of high-severity reports
-  list.innerHTML = highs.map((r, i) => `
-    <button class="list-group-item list-group-item-action d-flex align-items-center gap-3" data-index="${i}">
-      <img src="${r.photo || 'https://via.placeholder.com/64?text=No+Photo'}" 
-           class="thumb" 
-           data-photo="${r.photo || ''}" />
-      <div>
-        <strong>${r.barangay}</strong> (${r.municipality})<br>
-        <small>${r.date}</small>
-      </div>
-    </button>
-  `).join('');
-
-  // Show modal
-  const modal = new bootstrap.Modal(document.getElementById('highModal'));
-  modal.show();
-
-  // Add click event for each list button
-  list.querySelectorAll('button').forEach((btn) => {
-    btn.onclick = (e) => {
-      const r = highs[btn.dataset.index];
-      modal.hide(); // Close the modal
-
-      // Center map on this report's location
-      if (r.lat && r.lng) {
-        map.setView([r.lat, r.lng], 14, { animate: true });
-
-        // Add a red marker and popup
-        L.circleMarker([r.lat, r.lng], {
-          radius: 10,
-          color: 'red',
-          fillColor: '#f03',
-          fillOpacity: 0.7
-        }).addTo(map)
-          .bindPopup(`<b>${r.barangay}, ${r.municipality}</b><br>Date: ${r.date}`)
-          .openPopup();
-      } else {
-        showToast('⚠️ This report has no location data.', 'warning');
-      }
-    };
-  });
-
-  // Add click event for photo thumbnails to open lightbox
-  list.querySelectorAll('img.thumb').forEach(img => {
-    img.onclick = (e) => {
-      e.stopPropagation();
-      if (img.dataset.photo) {
-        openLightbox(lightboxImages.indexOf(img.dataset.photo));
-      }
-    };
-  });
-};
-
-
 </script>
+
 
 
 <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
