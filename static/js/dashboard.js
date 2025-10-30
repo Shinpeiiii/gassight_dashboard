@@ -249,74 +249,70 @@ function showHighReports(highReports) {
 
   highReports.forEach((r) => {
     const item = document.createElement('button');
-    item.className =
-      'list-group-item list-group-item-action d-flex align-items-center gap-3';
+    item.className = 'list-group-item list-group-item-action d-flex align-items-center gap-3';
     item.innerHTML = `
-      <img src="${
-        r.photo && r.photo.trim() !== '' ? r.photo : '/static/icons/icon-192.png'
-      }"
-        class="thumb"
-        style="width:64px;height:64px;border-radius:8px;object-fit:cover;border:2px solid #eee;">
+      <img src="${(r.photo && r.photo.trim() !== '' ? r.photo : '/static/icons/icon-192.png')}"
+           class="thumb"
+           style="width:64px;height:64px;border-radius:8px;object-fit:cover;border:2px solid #eee;">
       <div>
-        <strong>${r.barangay || 'Unknown'}${
-      r.municipality ? ', ' + r.municipality : ''
-    }</strong><br>
+        <strong>${r.barangay || 'Unknown'}${r.municipality ? ', ' + r.municipality : ''}</strong><br>
         <small>${r.date || ''} — ${r.reporter || ''}</small>
       </div>
     `;
 
-    // 🔍 Click behavior for zooming into GPS location
     item.addEventListener('click', () => {
-      const lat = Number(r.lat),
-        lng = Number(r.lng);
-      if (!map || Number.isNaN(lat) || Number.isNaN(lng)) return;
+      const lat = Number(r.lat);
+      const lng = Number(r.lng);
+      if (!map || isNaN(lat) || isNaN(lng)) {
+        console.warn('Invalid GPS data:', lat, lng);
+        return;
+      }
 
       const modalEl = document.getElementById('highModal');
       const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
 
-      // Wait until modal is fully closed before adjusting the map
+      // Wait for modal fade animation to finish completely
       modalEl.addEventListener(
         'hidden.bs.modal',
         () => {
-          // Recalculate map size and scroll it into view
-          map.invalidateSize();
-          document
-            .getElementById('map')
-            ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-          // Smooth fly animation to the GPS coordinates
-          map.flyTo([lat, lng], 16, {
-            animate: true,
-            duration: 1.5,
-          });
-
-          // Add a temporary pulsing marker for visibility
-          const pulse = L.circleMarker([lat, lng], {
-            radius: 10,
-            color: 'red',
-            fillColor: 'red',
-            fillOpacity: 0.5,
-            weight: 3,
-          }).addTo(map);
-
+          // Allow Bootstrap’s fade-out to fully complete before map actions
           setTimeout(() => {
-            map.removeLayer(pulse);
-          }, 3000);
+            map.invalidateSize();
+            document.getElementById('map')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+            // ✅ Fly smoothly to the GPS location
+            map.flyTo([lat, lng], 16, { animate: true, duration: 1.2 });
+
+            // ✅ Add a permanent marker at that point
+            const marker = L.marker([lat, lng]).addTo(map);
+
+            // ✅ Add a short pulse effect for clarity
+            const pulse = L.circle([lat, lng], {
+              radius: 50,
+              color: 'red',
+              fillColor: 'red',
+              fillOpacity: 0.25,
+              weight: 2,
+            }).addTo(map);
+            setTimeout(() => {
+              map.removeLayer(pulse);
+            }, 3000);
+          }, 700); // <- wait 700ms so map resize happens AFTER modal fade
         },
         { once: true }
       );
 
-      modal.hide(); // Close the modal and trigger the hidden event
+      modal.hide(); // Close the modal
     });
 
     list.appendChild(item);
   });
 
-  // Show modal
-  bootstrap.Modal.getOrCreateInstance(
-    document.getElementById('highModal')
-  ).show();
+  // Open the modal
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('highModal')).show();
 }
+
+
 
 // ============ INIT ============
 window.addEventListener('load', () => {
