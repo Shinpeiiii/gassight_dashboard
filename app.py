@@ -17,13 +17,6 @@ from flask_jwt_extended import (
     JWTManager, create_access_token, jwt_required, get_jwt_identity
 )
 from flask_cors import CORS
-import os
-from flask import Flask
-from datetime import datetime
-
-app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = os.path.join('static', 'uploads')
-
 
 # -----------------------------
 # App setup
@@ -34,19 +27,20 @@ CORS(app)  # allow mobile/web to call /api/*
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-change-me')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///gassight.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
 app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'super-secret-key')
+
+# ✅ Fix session issues on Render
+app.config['SESSION_COOKIE_SECURE'] = False
+app.config['SESSION_COOKIE_SAMESITE'] = "Lax"
+
 jwt = JWTManager(app)
-
-# uploads
-app.config['UPLOAD_FOLDER'] = os.path.join(app.static_folder, 'uploads')
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-
-ADMIN_CODE = os.environ.get('ADMIN_CODE', 'GASSIGHT_ADMIN')
-
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
+
+app.config['UPLOAD_FOLDER'] = os.path.join(app.static_folder, 'uploads')
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+ADMIN_CODE = os.environ.get('ADMIN_CODE', 'GASSIGHT_ADMIN')
 
 # -----------------------------
 # Models
@@ -92,10 +86,10 @@ def admin_required(view_func):
     @wraps(view_func)
     def wrapper(*args, **kwargs):
         if not current_user.is_authenticated:
-            return login_manager.unauthorized()
-        if not current_user.is_admin:
-            flash("Admin access required.", "danger")
             return redirect(url_for('login'))
+        if not current_user.is_admin:
+            flash("⚠️ Admin access required.", "danger")
+            return redirect(url_for('no_access'))
         return view_func(*args, **kwargs)
     return wrapper
 
@@ -103,40 +97,71 @@ def admin_required(view_func):
 # Pages
 # -----------------------------
 @app.route('/')
+def home():
+    """Redirect users depending on role."""
+    if not current_user.is_authenticated:
+        return redirect(url_for('login'))
+    if current_user.is_admin:
+        return redirect(url_for('dashboard'))
+    else:
+        return redirect(url_for('no_access'))
+
+
+@app.route('/dashboard')
 @login_required
 @admin_required
-def index():
-    # dashboard pulls data via /api/*, so just render template
+def dashboard():
+    """Admin dashboard."""
     return render_template('dashboard.html')
+
+
+@app.route('/no-access')
+@login_required
+def no_access():
+    """Shown to non-admin users."""
+    return render_template('no_access.html', message="You must be an admin to access the dashboard.")
+
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for('index'))
+        if current_user.is_admin:
+            return redirect(url_for('dashboard'))
+        else:
+            return redirect(url_for('no_access'))
+
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
         user = User.query.filter_by(username=username).first()
+
         if user and user.check_password(password):
             login_user(user, remember=True)
-            flash("Welcome back!", "success")
-            return redirect(request.args.get('next') or url_for('index'))
-        flash("Invalid username or password.", "danger")
-    
-    # ✅ Pass datetime explicitly here
+            flash("✅ Welcome back!", "success")
+            if user.is_admin:
+                return redirect(url_for('dashboard'))
+            else:
+                return redirect(url_for('no_access'))
+        flash("❌ Invalid username or password.", "danger")
+
     return render_template('login.html', datetime=datetime)
+
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated:
-        return redirect(url_for('index'))
+        if current_user.is_admin:
+            return redirect(url_for('dashboard'))
+        else:
+            return redirect(url_for('no_access'))
+
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
         admin_code = request.form.get('admin_code', '').strip()
 
         if not username or not password:
-            flash("Username and password are required.", "danger")
+            flash("Username and password required.", "danger")
             return render_template('register.html', datetime=datetime)
 
         if User.query.filter_by(username=username).first():
@@ -150,18 +175,26 @@ def register():
         db.session.commit()
 
         login_user(user)
-        flash("Account created.", "success")
-        return redirect(url_for('index'))
+        flash("🎉 Account created successfully!", "success")
+        if user.is_admin:
+            return redirect(url_for('dashboard'))
+        else:
+            return redirect(url_for('no_access'))
 
-    # 👇 FIX: Pass datetime to the template here
     return render_template('register.html', datetime=datetime)
+
 
 @app.route('/logout')
 @login_required
 def logout():
     logout_user()
-    flash("Logged out.", "info")
+    flash("You’ve been logged out.", "info")
     return redirect(url_for('login'))
+
+
+@app.route('/static/<path:filename>')
+def static_files(filename):
+    return send_from_directory(app.static_folder, filename)
 
 @app.route('/offline')
 def offline():
@@ -171,12 +204,8 @@ def offline():
 def loading():
     return render_template('loading.html')
 
-@app.route('/static/<path:filename>')
-def static_files(filename):
-    return send_from_directory(app.static_folder, filename)
-
 # -----------------------------
-# API – Auth for mobile
+# API – Mobile Auth
 # -----------------------------
 @app.route('/api/signup', methods=['POST'])
 def api_signup():
@@ -196,6 +225,7 @@ def api_signup():
         return jsonify({"message": "Account created successfully!"}), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @app.route('/api/login', methods=['POST'])
 def api_login():
@@ -217,47 +247,42 @@ def api_login():
         "token": access_token
     }), 200
 
-
 # -----------------------------
 # API – Submit report (mobile/web)
 # -----------------------------
 @app.route('/api/report', methods=['POST'])
 @jwt_required()
 def submit_report():
-    """Accepts JSON (web) or multipart/form-data (mobile)."""
     try:
         user_id = int(get_jwt_identity())
 
-        # JSON (Flutter web)
         if request.is_json:
             data = request.get_json(force=True)
-            reporter     = data.get("reporter", "")
-            barangay     = data.get("barangay", "")
+            reporter = data.get("reporter", "")
+            barangay = data.get("barangay", "")
             municipality = data.get("municipality", "")
-            province     = data.get("province", "")
-            severity     = data.get("severity", "Low")
-            lat          = data.get("lat")
-            lng          = data.get("lng")
-            photo_path   = data.get("photo_url", "")
+            province = data.get("province", "")
+            severity = data.get("severity", "Low")
+            lat = data.get("lat")
+            lng = data.get("lng")
+            photo_path = data.get("photo_url", "")
 
-        # Multipart (Flutter mobile)
         elif request.content_type and "multipart/form-data" in request.content_type:
-            reporter     = request.form.get("reporter", "")
-            barangay     = request.form.get("barangay", "")
+            reporter = request.form.get("reporter", "")
+            barangay = request.form.get("barangay", "")
             municipality = request.form.get("municipality", "")
-            province     = request.form.get("province", "")
-            severity     = request.form.get("severity", "Low")
-            lat          = request.form.get("lat")
-            lng          = request.form.get("lng")
+            province = request.form.get("province", "")
+            severity = request.form.get("severity", "Low")
+            lat = request.form.get("lat")
+            lng = request.form.get("lng")
 
             photo_file = request.files.get("photo")
             photo_path = ""
             if photo_file:
-                filename  = secure_filename(f"{uuid.uuid4().hex}_{photo_file.filename}")
+                filename = secure_filename(f"{uuid.uuid4().hex}_{photo_file.filename}")
                 save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                 photo_file.save(save_path)
                 photo_path = f"/static/uploads/{filename}"
-
         else:
             return jsonify({"error": "Unsupported content type"}), 415
 
@@ -291,7 +316,7 @@ def submit_report():
         return jsonify({"error": str(e)}), 422
 
 # -----------------------------
-# API – Dashboard data
+# API – Dashboard Data
 # -----------------------------
 @app.route('/api/reports')
 def get_reports():
@@ -312,26 +337,14 @@ def get_reports():
         } for r in reports]
         return jsonify(data)
     except Exception as e:
-        print("⚠️ Error in /api/reports:", e)
         return jsonify({"error": str(e)}), 500
-
-@app.route('/api/report/<int:report_id>/status', methods=['PUT'])
-def update_report_status(report_id):
-    data = request.get_json(force=True)
-    new_status = (data.get('status') or '').strip()
-    if new_status not in ('Verified', 'Rejected', 'Pending'):
-        return jsonify({"error": "Invalid status"}), 400
-    report = Report.query.get_or_404(report_id)
-    report.status = new_status
-    db.session.commit()
-    return jsonify({"message": f"Report {report_id} updated to {new_status}"}), 200
 
 @app.route('/api/kpis')
 def get_kpis():
     total_sightings = Report.query.count()
     active_hotspots = Report.query.filter_by(severity="High").count()
     active_reporters = len(set(r.reporter for r in Report.query.all() if r.reporter))
-    avg_response_time = 18  # placeholder
+    avg_response_time = 18
     return jsonify({
         'total_sightings': total_sightings,
         'active_hotspots': active_hotspots,
@@ -339,39 +352,9 @@ def get_kpis():
         'avg_response_time': avg_response_time
     })
 
-@app.route('/api/severity-distribution')
-def severity_distribution():
-    counts = {"Low": 0, "Moderate": 0, "High": 0}
-    for r in Report.query.all():
-        if r.severity in counts:
-            counts[r.severity] += 1
-    return jsonify(counts)
-
-@app.route('/api/barangay-reports')
-def barangay_reports():
-    barangay_data = {}
-    for r in Report.query.all():
-        barangay_data[r.barangay] = barangay_data.get(r.barangay, 0) + 1
-    data = [{"name": b, "reports": c} for b, c in barangay_data.items()]
-    return jsonify(data)
-
-# 👇 NEW: used by your filter dropdown, prevents 404
-@app.route('/api/barangays')
-def api_barangays():
-    rows = db.session.execute(db.select(Report.barangay).distinct()).scalars().all()
-    # filter out empty/null
-    return jsonify([b for b in rows if b])
-
-@app.route('/api/trend')
-def trend():
-    data = [{"week": f"W{i}", "sightings": random.randint(10, 50)} for i in range(1, 8)]
-    return jsonify(data)
-
 # -----------------------------
 # Run
 # -----------------------------
-if __name__ == '__main__':
-    import os
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
-
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
