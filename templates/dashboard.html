@@ -34,12 +34,10 @@ body { background-color: #f8faf9; }
   padding: 4px;
   transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
-
 .logo:hover {
   transform: scale(1.08);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
 }
-
 
 /* ALERT badge */
 .alert-indicator {
@@ -110,20 +108,17 @@ body { background-color: #f8faf9; }
   <!-- Header -->
   <div class="d-flex align-items-center mb-4 justify-content-between flex-wrap gap-2">
     <div class="d-flex align-items-center gap-3 flex-wrap">
-<img src="{{ url_for('static', filename='images/snail-logo.jpg') }}"
-     alt="GASsight Logo"
-     class="logo shadow-sm">
-
-  <div>
-    <h3 class="m-0 d-flex align-items-center gap-2">
-      GASsight Dashboard
-      <span id="alertIndicator" class="alert-indicator d-none">
-        <span class="alert-dot"></span> ALERT
-      </span>
-    </h3>
-    <small class="text-muted">Golden Apple Snail Geo-tagging & Visualization</small>
-  </div>
-</div>
+      <img src="{{ url_for('static', filename='images/snail-logo.jpg') }}" alt="GASsight Logo" class="logo shadow-sm">
+      <div>
+        <h3 class="m-0 d-flex align-items-center gap-2">
+          GASsight Dashboard
+          <span id="alertIndicator" class="alert-indicator d-none">
+            <span class="alert-dot"></span> ALERT
+          </span>
+        </h3>
+        <small class="text-muted">Golden Apple Snail Geo-tagging & Visualization</small>
+      </div>
+    </div>
 
     <!-- Controls -->
     <div class="d-flex align-items-center gap-2 flex-wrap">
@@ -151,39 +146,34 @@ body { background-color: #f8faf9; }
     </div>
   </div>
 
-<div class="card mb-4">
-  <div class="card-body row g-3 align-items-end">
-    <div class="col-md-3">
-      <label class="form-label fw-semibold">Barangay</label>
-      <select id="barangayFilter" class="form-select">
-        <option value="All">All</option>
-      </select>
-    </div>
-
-    <div class="col-md-3">
-      <label class="form-label fw-semibold">Severity</label>
-      <select id="severityFilter" class="form-select">
-        <option value="All">All</option>
-        <option value="Low">Low</option>
-        <option value="Moderate">Moderate</option>
-        <option value="High">High</option>
-      </select>
-    </div>
-
-    <div class="col-md-3">
-      <label class="form-label fw-semibold">Date Range</label>
-      <input type="date" id="startDate" class="form-control mb-1" />
-      <input type="date" id="endDate" class="form-control" />
-    </div>
-
-    <div class="col-md-3 text-md-start text-center">
-      <button id="filterBtn" class="btn btn-success w-100">
-        <i class="bi bi-funnel"></i> Apply Filter
-      </button>
+  <!-- Filters -->
+  <div class="card mb-4">
+    <div class="card-body row g-3 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label fw-semibold">Barangay</label>
+        <select id="barangayFilter" class="form-select"><option value="All">All</option></select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label fw-semibold">Severity</label>
+        <select id="severityFilter" class="form-select">
+          <option value="All">All</option>
+          <option value="Low">Low</option>
+          <option value="Moderate">Moderate</option>
+          <option value="High">High</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label fw-semibold">Date Range</label>
+        <input type="date" id="startDate" class="form-control mb-1" />
+        <input type="date" id="endDate" class="form-control" />
+      </div>
+      <div class="col-md-3 text-md-start text-center">
+        <button id="filterBtn" class="btn btn-success w-100">
+          <i class="bi bi-funnel"></i> Apply Filter
+        </button>
+      </div>
     </div>
   </div>
-</div>
-
 
   <!-- KPIs -->
   <div class="row g-3 mb-4">
@@ -208,266 +198,101 @@ body { background-color: #f8faf9; }
 
   <!-- Table -->
   <div class="card mt-4 border-light">
-  <div class="card-header fw-semibold">Recent Reports</div>
-  <div class="card-body table-responsive">
-    <table id="reports-table" class="table table-sm align-middle">
-      <thead>
-        <tr>
-          <th>Date</th>
-          <th>Reporter</th>
-          <th>Location</th>
-          <th>Severity</th>
-          <th>Photo</th>
-          <th>Status</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        <!-- rows dynamically inserted by dashboard.js -->
-      </tbody>
-    </table>
-  </div>
-</div>
-
-
-
-<div class="toast-container" id="toastContainer"></div>
-
-<!-- High Severity Modal -->
-<div class="modal fade" id="highModal" tabindex="-1">
-  <div class="modal-dialog modal-dialog-centered modal-lg">
-    <div class="modal-content">
-      <div class="modal-header bg-danger text-white">
-        <h5 class="modal-title">High Severity Hotspots</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body"><div class="list-group" id="highList"></div></div>
+    <div class="card-header fw-semibold">Recent Reports</div>
+    <div class="card-body table-responsive">
+      <table id="reports-table" class="table table-sm align-middle">
+        <thead>
+          <tr>
+            <th>Date</th><th>Reporter</th><th>Location</th><th>Severity</th><th>Photo</th><th>Status</th><th>Action</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
     </div>
   </div>
-</div>
 
-<!-- Lightbox -->
-<div class="modal fade" id="imageModal" tabindex="-1">
-  <div class="modal-dialog modal-dialog-centered modal-lg">
-    <div class="modal-content bg-dark position-relative">
-      <button id="prevBtn" class="lightbox-btn">&#8249;</button>
-      <img id="fullImage" class="w-100 rounded" alt="Full view">
-      <button id="nextBtn" class="lightbox-btn">&#8250;</button>
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- High Severity Modal -->
+  <div class="modal fade" id="highModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content">
+        <div class="modal-header bg-danger text-white">
+          <h5 class="modal-title">High Severity Hotspots</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body"><div class="list-group" id="highList"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lightbox -->
+  <div class="modal fade" id="imageModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content bg-dark position-relative">
+        <button id="prevBtn" class="lightbox-btn">&#8249;</button>
+        <img id="fullImage" class="w-100 rounded" alt="Full view">
+        <button id="nextBtn" class="lightbox-btn">&#8250;</button>
+      </div>
     </div>
   </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- 🔴 HIGH-SEVERITY ALERT SYSTEM -->
 <script>
-const BASE_URL = window.location.hostname.includes("localhost") || window.location.hostname.includes("127.0.0.1")
-  ? "http://127.0.0.1:5000"
-  : ""; // Use relative paths when deployed on Render
-
-let allReports = [], filteredReports = [], map, heatLayer, charts = {}, refreshTimer;
-
-function showToast(msg, type='success') {
-  const c = document.getElementById('toastContainer');
-  const t = document.createElement('div');
-  t.className = `toast align-items-center text-bg-${type} border-0`;
-  t.innerHTML = `<div class='d-flex'><div class='toast-body'>${msg}</div>
-  <button type='button' class='btn-close btn-close-white me-2 m-auto' data-bs-dismiss='toast'></button></div>`;
-  c.appendChild(t);
-  const bs = new bootstrap.Toast(t, { delay: 3000 });
-  bs.show();
-  t.addEventListener('hidden.bs.toast', () => t.remove());
-}
-
-async function fetchJSON(endpoint) {
-  try {
-    const fullURL = endpoint.startsWith("http") ? endpoint : `${BASE_URL}${endpoint}`;
-    const res = await fetch(fullURL);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } catch (e) {
-    console.error(`❌ Fetch error for ${endpoint}:`, e);
-    showToast(`Failed to load data from ${endpoint}`, 'danger');
-    return [];
+function showHighAlert(highReports) {
+  const alert = document.getElementById('alertIndicator');
+  if (!alert) return;
+  if (!highReports || highReports.length === 0) {
+    alert.classList.add('d-none');
+  } else {
+    alert.classList.remove('d-none');
+    alert.onclick = () => showHighReports(highReports);
   }
 }
 
-function updateTimestamp() {
-  document.getElementById('lastUpdate').innerText = new Date().toLocaleTimeString();
-}
-
-async function loadBarangays() {
-  const brg = await fetchJSON('/api/barangays');
-  const sel = document.getElementById('barangayFilter');
-  sel.innerHTML = '<option value="All">All</option>' +
-    (Array.isArray(brg) ? brg.map(b => `<option>${b}</option>`).join('') : '');
-}
-
-async function updateKpis() {
-  const k = await fetchJSON('/api/kpis');
-  totalSightings.innerText = k.total_sightings || 0;
-  activeHotspots.innerText = k.active_hotspots || 0;
-  activeReporters.innerText = k.active_reporters || 0;
-  avgResponse.innerText = k.avg_response_time || 0;
-}
-
-async function updateCharts() {
-  const sev = await fetchJSON('/api/severity-distribution');
-  const brg = await fetchJSON('/api/barangay-reports');
-  const trn = await fetchJSON('/api/trend');
-  charts.severity?.destroy(); charts.barangay?.destroy(); charts.trend?.destroy();
-
-  charts.severity = new Chart(severityChart, {
-    type: 'pie',
-    data: {
-      labels: Object.keys(sev),
-      datasets: [{ data: Object.values(sev), backgroundColor: ['#7cb342','#fbc02d','#e53935'] }]
-    }
-  });
-
-  charts.barangay = new Chart(barangayChart, {
-    type: 'bar',
-    data: {
-      labels: brg.map(x => x.name),
-      datasets: [{ label: 'Reports', data: brg.map(x => x.reports), backgroundColor: '#42a5f5' }]
-    },
-    options: { plugins: { legend: { display: false } } }
-  });
-
-  charts.trend = new Chart(trendChart, {
-    type: 'line',
-    data: {
-      labels: trn.map(x => x.week),
-      datasets: [{ label: 'Sightings', data: trn.map(x => x.sightings), borderColor: '#d32f2f', tension: 0.3 }]
-    },
-    options: { plugins: { legend: { display: false } } }
-  });
-}
-
-async function updateReports() {
-  const data = await fetchJSON('/api/reports');
-  allReports = Array.isArray(data) ? data : data.reports || [];
-  applyFilters();
-}
-
-function applyFilters() {
-  const barangay = document.getElementById('barangayFilter').value;
-  const severity = document.getElementById('severityFilter').value;
-  const start = document.getElementById('startDate').value;
-  const end = document.getElementById('endDate').value;
-
-  filteredReports = allReports.filter(r => {
-    const matchBrg = (barangay === 'All' || r.barangay === barangay);
-    const matchSev = (severity === 'All' || r.severity === severity);
-    const matchDate = (!start || r.date >= start) && (!end || r.date <= end);
-    return matchBrg && matchSev && matchDate;
-  });
-
-  renderTable();
-  renderMap();
-}
-
-function renderTable() {
-  const t = document.getElementById('reportTable');
-  if (!t) return;
-  if (!filteredReports.length) {
-    t.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No reports available</td></tr>';
-    return;
-  }
-  t.innerHTML = filteredReports.map(r => `
-    <tr class="${r.severity === 'High' ? 'high-row' : ''}">
-      <td>${r.date || ''}</td>
-      <td>${r.reporter || ''}</td>
-      <td>${r.barangay && r.municipality ? `${r.barangay}, ${r.municipality}` : ''}</td>
-      <td>${r.severity || ''}</td>
-      <td>${r.photo
-        ? `<img src="${r.photo}" alt="photo" style="width:60px;height:60px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="openImage('${r.photo}')">`
-        : '<span class="text-muted">No photo</span>'}
-      </td>
-      <td>${r.status || ''}</td>
-      <td>
-        ${r.status === 'Pending'
-          ? `
-            <button class="btn btn-sm btn-success" onclick="updateStatus(${r.id}, 'Verified')">✅ Verify</button>
-            <button class="btn btn-sm btn-danger" onclick="updateStatus(${r.id}, 'Rejected')">❌ Reject</button>`
-          : `
-            <select class="form-select form-select-sm action-dropdown" 
-                    data-id="${r.id}" 
-                    onchange="updateResolutionStatus(this)">
-              <option value="">Select Status</option>
-              <option value="Solved">Solved</option>
-              <option value="Not Been Solved Yet">Not Been Solved Yet</option>
-            </select>`}
-      </td>
-    </tr>
-  `).join('');
-}
-
-function openImage(url) {
-  document.getElementById('fullImage').src = url;
-  new bootstrap.Modal(document.getElementById('imageModal')).show();
-}
-
-function renderMap() {
-  const pts = filteredReports.filter(r => r.lat && r.lng)
-    .map(r => [r.lat, r.lng, r.severity === 'High' ? 1 : r.severity === 'Moderate' ? 0.6 : 0.3]);
-  if (heatLayer) map.removeLayer(heatLayer);
-  heatLayer = L.heatLayer(pts, { radius: 25, blur: 15 }).addTo(map);
-}
-
-function initMap() {
-  map = L.map('map').setView([16.63, 120.33], 10);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-}
-
-function setAutoRefresh() {
-  clearInterval(refreshTimer);
-  const val = document.getElementById('refreshInterval').value;
-  if (val === 'off') return;
-  refreshTimer = setInterval(refreshDashboard, parseInt(val) * 1000);
-}
-
-async function refreshDashboard() {
-  await updateReports();
-  await updateKpis();
-  await updateCharts();
-  updateTimestamp();
-}
-
-async function init() {
-  initMap();
-  await loadBarangays();
-  await refreshDashboard();
-  showToast('Dashboard loaded', 'info');
-  updateTimestamp();
-  document.getElementById('barangayFilter').onchange = applyFilters;
-  document.getElementById('severityFilter').onchange = applyFilters;
-  document.getElementById('startDate').onchange = applyFilters;
-  document.getElementById('endDate').onchange = applyFilters;
-  document.getElementById('manualRefresh').onclick = refreshDashboard;
-  document.getElementById('refreshInterval').onchange = setAutoRefresh;
-}
-
-init();
-
-async function updateStatus(id, newStatus) {
-  try {
-    const res = await fetch(`${BASE_URL}/api/report/${id}/status`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: newStatus })
+function showHighReports(highReports) {
+  const list = document.getElementById('highList');
+  list.innerHTML = '';
+  highReports.forEach(r => {
+    const item = document.createElement('button');
+    item.className = 'list-group-item list-group-item-action d-flex align-items-center gap-3';
+    item.innerHTML = `
+      <img src="${r.photo || '/static/icons/icon-192.png'}" class="thumb" alt="">
+      <div>
+        <strong>${r.barangay || 'Unknown'}, ${r.municipality || ''}</strong><br>
+        <small>${r.date || ''} — ${r.reporter || ''}</small>
+      </div>
+    `;
+    item.addEventListener('click', () => {
+      if (r.lat && r.lng && map) {
+        const modal = bootstrap.Modal.getInstance(document.getElementById('highModal'));
+        if (modal) modal.hide();
+        map.setView([r.lat, r.lng], 14);
+      }
     });
-    if (res.ok) {
-      showToast(`✅ Report #${id} marked as ${newStatus}`, 'success');
-      await refreshDashboard();
-    } else showToast('❌ Failed to update status', 'danger');
-  } catch (e) {
-    console.error(e);
-    showToast('⚠️ Error updating report', 'danger');
-  }
+    list.appendChild(item);
+  });
+  new bootstrap.Modal(document.getElementById('highModal')).show();
 }
+
+const originalUpdateReports = updateReports;
+updateReports = async function() {
+  await originalUpdateReports();
+  const highReports = allReports.filter(r => r.severity === 'High');
+  showHighAlert(highReports);
+};
+
+const originalApplyFilters = applyFilters;
+applyFilters = function() {
+  originalApplyFilters();
+  const highReports = filteredReports.filter(r => r.severity === 'High');
+  showHighAlert(highReports);
+};
 </script>
 
 <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
-
-
 </body>
 </html>
