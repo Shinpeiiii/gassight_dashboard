@@ -1,21 +1,45 @@
 // static/js/dashboard.js
 
+let map, heatLayer;
+let allReports = [];
+let severityChart, barangayChart, trendChart;
+
+// ============ HELPER FUNCTIONS ============
+
+// Toast helper (for feedback)
+function showToast(msg, type = 'info') {
+  const c = document.getElementById('toastContainer');
+  if (!c) return;
+  const t = document.createElement('div');
+  t.className = `toast align-items-center text-bg-${type} border-0`;
+  t.innerHTML = `
+    <div class="d-flex">
+      <div class="toast-body">${msg}</div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+    </div>`;
+  c.appendChild(t);
+  const bsToast = new bootstrap.Toast(t, { delay: 3000 });
+  bsToast.show();
+  t.addEventListener('hidden.bs.toast', () => t.remove());
+}
+
+// ============ LOAD REPORTS ============
+
 async function loadReports() {
   try {
     const response = await fetch('/api/reports');
     const reports = await response.json();
+    allReports = Array.isArray(reports) ? reports : [];
 
     const tableBody = document.querySelector('#reports-table tbody');
     tableBody.innerHTML = '';
 
-    reports.forEach((r) => {
+    allReports.forEach((r) => {
       const row = document.createElement('tr');
       if (r.severity === 'High') row.classList.add('table-danger');
 
-      // ✅ Fix photo path — must start with /static/uploads/
       let photoUrl = '';
       if (r.photo && r.photo.trim() !== '') {
-        // if photo path doesn’t start with /static/, prepend it
         photoUrl = r.photo.startsWith('/static/')
           ? r.photo
           : '/static/uploads/' + r.photo;
@@ -42,17 +66,14 @@ async function loadReports() {
             <option value="Resolved">Resolved</option>
             <option value="Not Resolved">Not Resolved</option>
           </select>
-        </td>
-      `;
+        </td>`;
       tableBody.appendChild(row);
     });
 
-    // ✅ Status update handling
     document.querySelectorAll('.action-select').forEach((select) => {
       select.addEventListener('change', async (e) => {
         const reportId = e.target.dataset.id;
         const newStatus = e.target.value;
-
         if (!newStatus) return;
         try {
           const res = await fetch(`/api/report/${reportId}/status`, {
@@ -60,29 +81,163 @@ async function loadReports() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ status: newStatus }),
           });
-
           if (res.ok) {
-            console.log(`✅ Report ${reportId} updated to ${newStatus}`);
+            showToast(`Report ${reportId} updated to ${newStatus}`, 'success');
             loadReports();
-          } else {
-            console.error('Failed to update status');
-          }
+          } else showToast('Failed to update status', 'danger');
         } catch (err) {
           console.error('Error updating status:', err);
         }
       });
     });
 
+    renderMap();
+    updateCharts();
+    showHighAlert(allReports.filter(r => r.severity === 'High'));
+
   } catch (err) {
     console.error('Failed to load reports:', err);
+    showToast('Failed to load reports', 'danger');
   }
 }
 
-// ✅ Enlarge image in new window
+// ============ MAP (LEAFLET HEATMAP) ============
+
+function initMap() {
+  map = L.map('map').setView([16.63, 120.33], 10);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+}
+
+function renderMap() {
+  if (!map) return;
+  const pts = allReports
+    .filter((r) => r.lat && r.lng)
+    .map((r) => [
+      r.lat,
+      r.lng,
+      r.severity === 'High' ? 1 : r.severity === 'Moderate' ? 0.6 : 0.3,
+    ]);
+
+  if (heatLayer) map.removeLayer(heatLayer);
+  if (pts.length > 0) {
+    heatLayer = L.heatLayer(pts, { radius: 25, blur: 15 }).addTo(map);
+  }
+}
+
+// ============ CHARTS ============
+
+async function updateCharts() {
+  const sevData = await fetchJSON('/api/severity-distribution');
+  const brgData = await fetchJSON('/api/barangay-reports');
+  const trendData = await fetchJSON('/api/trend');
+
+  if (severityChart) severityChart.destroy();
+  if (barangayChart) barangayChart.destroy();
+  if (trendChart) trendChart.destroy();
+
+  const sevCtx = document.getElementById('severityChart');
+  if (sevCtx) {
+    severityChart = new Chart(sevCtx, {
+      type: 'pie',
+      data: {
+        labels: Object.keys(sevData),
+        datasets: [{
+          data: Object.values(sevData),
+          backgroundColor: ['#7cb342','#fbc02d','#e53935'],
+        }],
+      },
+    });
+  }
+
+  const brgCtx = document.getElementById('barangayChart');
+  if (brgCtx) {
+    barangayChart = new Chart(brgCtx, {
+      type: 'bar',
+      data: {
+        labels: brgData.map(x => x.name),
+        datasets: [{ label: 'Reports', data: brgData.map(x => x.reports), backgroundColor: '#42a5f5' }],
+      },
+      options: { plugins: { legend: { display: false } } },
+    });
+  }
+
+  const trnCtx = document.getElementById('trendChart');
+  if (trnCtx) {
+    trendChart = new Chart(trnCtx, {
+      type: 'line',
+      data: {
+        labels: trendData.map(x => x.week),
+        datasets: [{
+          label: 'Sightings',
+          data: trendData.map(x => x.sightings),
+          borderColor: '#d32f2f',
+          tension: 0.3,
+        }],
+      },
+      options: { plugins: { legend: { display: false } } },
+    });
+  }
+}
+
+async function fetchJSON(endpoint) {
+  try {
+    const res = await fetch(endpoint);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (e) {
+    console.error(`Fetch error: ${endpoint}`, e);
+    return [];
+  }
+}
+
+// ============ IMAGE PREVIEW ============
+
 function openImage(url) {
   const imgWindow = window.open('');
   imgWindow.document.write(`<img src="${url}" style="max-width:100%;height:auto;">`);
 }
 
-loadReports();
-setInterval(loadReports, 10000);
+// ============ HIGH SEVERITY ALERT ============
+
+function showHighAlert(highReports) {
+  const alert = document.getElementById('alertIndicator');
+  if (!alert) return;
+  if (!highReports.length) {
+    alert.classList.add('d-none');
+    return;
+  }
+  alert.classList.remove('d-none');
+  alert.onclick = () => showHighReports(highReports);
+}
+
+function showHighReports(highReports) {
+  const list = document.getElementById('highList');
+  if (!list) return;
+  list.innerHTML = '';
+  highReports.forEach((r) => {
+    const item = document.createElement('button');
+    item.className = 'list-group-item list-group-item-action d-flex align-items-center gap-3';
+    item.innerHTML = `
+      <img src="${r.photo || '/static/icons/icon-192.png'}" class="thumb"
+        style="width:64px;height:64px;border-radius:8px;object-fit:cover;border:2px solid #eee;">
+      <div><strong>${r.barangay || 'Unknown'}, ${r.municipality || ''}</strong><br>
+      <small>${r.date || ''} — ${r.reporter || ''}</small></div>`;
+    item.addEventListener('click', () => {
+      if (r.lat && r.lng && map) {
+        const modal = bootstrap.Modal.getInstance(document.getElementById('highModal'));
+        if (modal) modal.hide();
+        map.setView([r.lat, r.lng], 14);
+      }
+    });
+    list.appendChild(item);
+  });
+  new bootstrap.Modal(document.getElementById('highModal')).show();
+}
+
+// ============ INITIALIZATION ============
+
+window.addEventListener('load', () => {
+  initMap();
+  loadReports();
+  setInterval(loadReports, 15000); // refresh every 15s
+});
