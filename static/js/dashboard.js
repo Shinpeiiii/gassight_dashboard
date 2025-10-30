@@ -249,50 +249,73 @@ function showHighReports(highReports) {
 
   highReports.forEach((r) => {
     const item = document.createElement('button');
-    item.className = 'list-group-item list-group-item-action d-flex align-items-center gap-3';
+    item.className =
+      'list-group-item list-group-item-action d-flex align-items-center gap-3';
     item.innerHTML = `
-      <img src="${(r.photo && r.photo.trim() !== '' ? r.photo : '/static/icons/icon-192.png')}"
-           class="thumb"
-           style="width:64px;height:64px;border-radius:8px;object-fit:cover;border:2px solid #eee;">
+      <img src="${
+        r.photo && r.photo.trim() !== '' ? r.photo : '/static/icons/icon-192.png'
+      }"
+        class="thumb"
+        style="width:64px;height:64px;border-radius:8px;object-fit:cover;border:2px solid #eee;">
       <div>
-        <strong>${r.barangay || 'Unknown'}${r.municipality ? ', ' + r.municipality : ''}</strong><br>
+        <strong>${r.barangay || 'Unknown'}${
+      r.municipality ? ', ' + r.municipality : ''
+    }</strong><br>
         <small>${r.date || ''} — ${r.reporter || ''}</small>
       </div>
     `;
 
     item.addEventListener('click', () => {
-      const lat = Number(r.lat), lng = Number(r.lng);
+      const lat = Number(r.lat),
+        lng = Number(r.lng);
       if (!map || Number.isNaN(lat) || Number.isNaN(lng)) return;
 
       const modalEl = document.getElementById('highModal');
       const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
 
-      // When the modal is fully hidden, reflow Leaflet and zoom.
+      // ✅ When modal is fully hidden, zoom and highlight
       const onHidden = () => {
-        // Make sure the map is actually visible on screen
-        document.getElementById('map')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Wait a moment for the Bootstrap fade-out animation
+        setTimeout(() => {
+          map.invalidateSize();
 
-        // Recalculate Leaflet size after overlay removal
-        map.invalidateSize();
+          // Smooth zoom-in animation
+          map.flyTo([lat, lng], 15, {
+            animate: true,
+            duration: 1.2,
+          });
 
-        // Smooth zoom + temporary focus ring
-        map.flyTo([lat, lng], 16, { animate: true, duration: 1.0 });
-        const pulse = L.circle([lat, lng], { radius: 30, color: 'red', weight: 2, fillOpacity: 0.15 }).addTo(map);
-        setTimeout(() => { try { map.removeLayer(pulse); } catch (_) {} }, 2500);
+          // 🔴 Add a temporary pulsing circle for focus
+          const pulse = L.circle([lat, lng], {
+            radius: 40,
+            color: 'red',
+            weight: 3,
+            fillColor: '#ff0000',
+            fillOpacity: 0.25,
+          }).addTo(map);
 
-        // Clean up the one-time listener
+          // Fade out pulse after a few seconds
+          setTimeout(() => {
+            map.removeLayer(pulse);
+          }, 3000);
+        }, 500); // wait half a second for modal transition
+
         modalEl.removeEventListener('hidden.bs.modal', onHidden);
       };
 
       modalEl.addEventListener('hidden.bs.modal', onHidden, { once: true });
-      modal.hide(); // triggers the hidden event
+      modal.hide(); // Trigger modal close
     });
 
     list.appendChild(item);
   });
 
-  bootstrap.Modal.getOrCreateInstance(document.getElementById('highModal')).show();
+  // ✅ Show the modal
+  bootstrap.Modal.getOrCreateInstance(
+    document.getElementById('highModal')
+  ).show();
 }
+
 
 
 
