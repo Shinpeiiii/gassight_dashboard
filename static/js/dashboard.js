@@ -21,7 +21,7 @@ function showToast(msg, type = 'info') {
   t.addEventListener('hidden.bs.toast', () => t.remove());
 }
 
-// ============ LOAD REPORTS ============
+// ============ LOAD REPORTS ============  
 async function loadReports() {
   try {
     const response = await fetch('/api/reports');
@@ -58,36 +58,21 @@ async function loadReports() {
               : '<span class="text-muted">No photo</span>'
           }
         </td>
-        <td>${r.status || 'Pending'}</td>
-        <td>
-          <select class="form-select form-select-sm action-select" data-id="${r.id}">
-            <option value="">Select Status</option>
-            <option value="Resolved">Resolved</option>
-            <option value="Not Resolved">Not Resolved</option>
-          </select>
-        </td>`;
-      tableBody.appendChild(row);
-    });
 
-    document.querySelectorAll('.action-select').forEach((select) => {
-      select.addEventListener('change', async (e) => {
-        const reportId = e.target.dataset.id;
-        const newStatus = e.target.value;
-        if (!newStatus) return;
-        try {
-          const res = await fetch(`/api/report/${reportId}/status`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: newStatus }),
-          });
-          if (res.ok) {
-            showToast(`Report ${reportId} updated to ${newStatus}`, 'success');
-            loadReports();
-          } else showToast('Failed to update status', 'danger');
-        } catch (err) {
-          console.error('Error updating status:', err);
-        }
-      });
+        <!-- ✅ STATUS BUTTONS -->
+        <td class="text-center">
+          <button class="btn btn-success btn-sm me-1" onclick="updateStatus(${r.id}, 'Approved')">✅ Approve</button>
+          <button class="btn btn-danger btn-sm" onclick="updateStatus(${r.id}, 'Rejected')">❌ Reject</button>
+        </td>
+
+        <!-- ✅ ACTION BUTTONS -->
+        <td class="text-center">
+          <button class="btn btn-primary btn-sm me-1" onclick="updateStatus(${r.id}, 'Resolved')">✔️ Resolved</button>
+          <button class="btn btn-secondary btn-sm" onclick="updateStatus(${r.id}, 'Not Resolved')">⚙️ Not Resolved</button>
+        </td>
+      `;
+
+      tableBody.appendChild(row);
     });
 
     renderMap();
@@ -98,6 +83,28 @@ async function loadReports() {
     showToast('Failed to load reports', 'danger');
   }
 }
+
+async function updateStatus(reportId, newStatus) {
+  try {
+    const res = await fetch(`/api/report/${reportId}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      showToast(`✅ ${data.message || `Report ${reportId} updated`}`, 'success');
+      loadReports();
+    } else {
+      showToast(`❌ Failed to update (HTTP ${res.status})`, 'danger');
+    }
+  } catch (err) {
+    console.error('Error updating status:', err);
+    showToast('⚠️ Could not update report status.', 'danger');
+  }
+}
+
 
 // ============ UPDATE KPI CARDS ============
 function updateKPIs(reports) {
