@@ -208,22 +208,27 @@ body { background-color: #f8faf9; }
 
   <!-- Table -->
   <div class="card mt-4 border-light">
-    <div class="card-header fw-semibold">Recent Reports</div>
-    <div class="card-body table-responsive">
-      <table class="table table-sm align-middle">
-  <thead>
-    <tr>
-      <th>Date</th>
-      <th>Reporter</th>
-      <th>Location</th>
-      <th>Severity</th>
-      <th>Photo</th>
-      <th>Status</th>
-      <th>Action</th>
-    </tr>
-  </thead>
-  <tbody id="reportTable"></tbody>
-</table>
+  <div class="card-header fw-semibold">Recent Reports</div>
+  <div class="card-body table-responsive">
+    <table id="reports-table" class="table table-sm align-middle">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Reporter</th>
+          <th>Location</th>
+          <th>Severity</th>
+          <th>Photo</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- rows dynamically inserted by dashboard.js -->
+      </tbody>
+    </table>
+  </div>
+</div>
+
 
 
 <div class="toast-container" id="toastContainer"></div>
