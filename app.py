@@ -220,25 +220,50 @@ def api_login():
 def submit_report():
     try:
         user_id = int(get_jwt_identity())
-        data = request.get_json(force=True)
+
+        # ✅ Detect content type (JSON or multipart)
+        if request.content_type and request.content_type.startswith('multipart/form-data'):
+            data = request.form
+        else:
+            data = request.get_json(force=True)
+
+        # ✅ Handle photo upload (optional)
+        photo_path = ""
+        if 'photo' in request.files:
+            photo_file = request.files['photo']
+            if photo_file.filename != "":
+                filename = secure_filename(photo_file.filename)
+                unique_name = f"{uuid.uuid4().hex}_{filename}"
+                save_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
+                photo_file.save(save_path)
+                photo_path = f"/static/uploads/{unique_name}"
+
+        # ✅ Create new report
         new_report = Report(
             reporter=data.get("reporter", ""),
             barangay=data.get("barangay", ""),
             municipality=data.get("municipality", ""),
             province=data.get("province", ""),
             severity=data.get("severity", "Low"),
-            lat=data.get("lat"),
-            lng=data.get("lng"),
-            photo=data.get("photo_url", ""),
+            lat=float(data.get("lat")) if data.get("lat") else None,
+            lng=float(data.get("lng")) if data.get("lng") else None,
+            photo=photo_path,
             status="Pending",
             user_id=user_id
         )
+
         db.session.add(new_report)
         db.session.commit()
-        return jsonify({"message": "Report submitted", "report_id": new_report.id}), 201
+
+        return jsonify({
+            "message": "✅ Report submitted successfully!",
+            "report_id": new_report.id
+        }), 201
+
     except Exception as e:
         print("⚠️ submit_report error:", e)
         return jsonify({"error": str(e)}), 422
+
 
 # -----------------------------
 # API – Dashboard Data
