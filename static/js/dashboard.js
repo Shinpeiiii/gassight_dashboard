@@ -265,6 +265,7 @@ function showHighReports(highReports) {
       </div>
     `;
 
+    // 🔍 Click behavior for zooming into GPS location
     item.addEventListener('click', () => {
       const lat = Number(r.lat),
         lng = Number(r.lng);
@@ -273,51 +274,49 @@ function showHighReports(highReports) {
       const modalEl = document.getElementById('highModal');
       const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
 
-      // ✅ When modal is fully hidden, zoom and highlight
-      const onHidden = () => {
-        // Wait a moment for the Bootstrap fade-out animation
-        setTimeout(() => {
+      // Wait until modal is fully closed before adjusting the map
+      modalEl.addEventListener(
+        'hidden.bs.modal',
+        () => {
+          // Recalculate map size and scroll it into view
           map.invalidateSize();
+          document
+            .getElementById('map')
+            ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
-          // Smooth zoom-in animation
-          map.flyTo([lat, lng], 15, {
+          // Smooth fly animation to the GPS coordinates
+          map.flyTo([lat, lng], 16, {
             animate: true,
-            duration: 1.2,
+            duration: 1.5,
           });
 
-          // 🔴 Add a temporary pulsing circle for focus
-          const pulse = L.circle([lat, lng], {
-            radius: 40,
+          // Add a temporary pulsing marker for visibility
+          const pulse = L.circleMarker([lat, lng], {
+            radius: 10,
             color: 'red',
+            fillColor: 'red',
+            fillOpacity: 0.5,
             weight: 3,
-            fillColor: '#ff0000',
-            fillOpacity: 0.25,
           }).addTo(map);
 
-          // Fade out pulse after a few seconds
           setTimeout(() => {
             map.removeLayer(pulse);
           }, 3000);
-        }, 500); // wait half a second for modal transition
+        },
+        { once: true }
+      );
 
-        modalEl.removeEventListener('hidden.bs.modal', onHidden);
-      };
-
-      modalEl.addEventListener('hidden.bs.modal', onHidden, { once: true });
-      modal.hide(); // Trigger modal close
+      modal.hide(); // Close the modal and trigger the hidden event
     });
 
     list.appendChild(item);
   });
 
-  // ✅ Show the modal
+  // Show modal
   bootstrap.Modal.getOrCreateInstance(
     document.getElementById('highModal')
   ).show();
 }
-
-
-
 
 // ============ INIT ============
 window.addEventListener('load', () => {
