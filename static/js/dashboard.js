@@ -242,7 +242,6 @@ function showHighAlert(highReports) {
   alert.onclick = () => showHighReports(highReports);
 }
 
-// ✅ UPDATED FUNCTION
 function showHighReports(highReports) {
   const list = document.getElementById('highList');
   if (!list) return;
@@ -264,18 +263,19 @@ function showHighReports(highReports) {
       </div>
     `;
 
-    // ✅ On click: close modal and zoom to location
+    // ✅ Click: hide modal, wait for transition, then zoom map
     item.addEventListener('click', () => {
+      const modalEl = document.getElementById('highModal');
+      const modalInstance = bootstrap.Modal.getInstance(modalEl);
+      if (modalInstance) modalInstance.hide();
+
       if (r.lat && r.lng && map) {
-        const modalEl = document.getElementById('highModal');
-        const modalInstance = bootstrap.Modal.getInstance(modalEl);
-        if (modalInstance) modalInstance.hide();
-
-        // Small delay for modal animation
+        // Wait for Bootstrap fade-out to complete
         setTimeout(() => {
-          map.setView([r.lat, r.lng], 15);
+          map.invalidateSize(); // reflow Leaflet map after modal closes
+          map.flyTo([r.lat, r.lng], 16, { animate: true, duration: 1.2 });
 
-          // Temporary marker with popup
+          // Highlight marker at the location
           const marker = L.marker([r.lat, r.lng]).addTo(map);
           marker
             .bindPopup(
@@ -283,9 +283,9 @@ function showHighReports(highReports) {
             )
             .openPopup();
 
-          // Auto-remove marker after 5 seconds
+          // Remove the marker after a few seconds
           setTimeout(() => map.removeLayer(marker), 5000);
-        }, 400);
+        }, 600); // delay ensures modal is fully hidden
       }
     });
 
@@ -294,6 +294,7 @@ function showHighReports(highReports) {
 
   new bootstrap.Modal(document.getElementById('highModal')).show();
 }
+
 
 // ============ INIT ============
 window.addEventListener('load', () => {
