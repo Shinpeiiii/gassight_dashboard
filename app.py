@@ -68,7 +68,8 @@ class Report(db.Model):
     municipality = db.Column(db.String(120))
     province = db.Column(db.String(120))
     severity = db.Column(db.String(50))
-    status = db.Column(db.String(50), default="Pending")
+    status = db.Column(db.String(50), default="Pending")  # ✅ Permanent status (Approved/Rejected)
+    action_status = db.Column(db.String(50), default="")   # ✅ For Resolved / Not Resolved
     photo = db.Column(db.String(255))
     lat = db.Column(db.Float)
     lng = db.Column(db.Float)
@@ -333,13 +334,29 @@ def update_report_status(report_id):
     report = Report.query.get(report_id)
     if not report:
         return jsonify({"error": "Report not found"}), 404
+
     data = request.get_json()
     new_status = data.get("status")
-    if not new_status:
-        return jsonify({"error": "Missing status"}), 400
-    report.status = new_status
+    target = data.get("target", "status")  # 'status' or 'action'
+
+    if target == "status":
+        # Only allow permanent statuses
+        if new_status in ["Approved", "Rejected"]:
+            report.status = new_status
+        else:
+            return jsonify({"error": "Invalid permanent status"}), 400
+    elif target == "action":
+        # For Resolved / Not Resolved
+        if new_status in ["Resolved", "Not Resolved", ""]:
+            report.action_status = new_status
+        else:
+            return jsonify({"error": "Invalid action status"}), 400
+    else:
+        return jsonify({"error": "Invalid target"}), 400
+
     db.session.commit()
-    return jsonify({"message": f"Report {report_id} updated to {new_status}"}), 200
+    return jsonify({"message": f"Report {report_id} {target} set to {new_status}"}), 200
+
 
 # -----------------------------
 # Run
