@@ -1,6 +1,6 @@
 // static/js/dashboard.js
 
-let map, heatLayer;
+let leafletMap, heatLayer;
 let allReports = [];
 let severityChart, barangayChart, trendChart;
 
@@ -28,10 +28,8 @@ async function loadReports() {
     const reports = await response.json();
     allReports = Array.isArray(reports) ? reports : [];
 
-    // ===== Update KPIs =====
     updateKPIs(allReports);
 
-    // ===== Update Table =====
     const tableBody = document.querySelector('#reports-table tbody');
     tableBody.innerHTML = '';
 
@@ -71,7 +69,6 @@ async function loadReports() {
       tableBody.appendChild(row);
     });
 
-    // Status update handling
     document.querySelectorAll('.action-select').forEach((select) => {
       select.addEventListener('change', async (e) => {
         const reportId = e.target.dataset.id;
@@ -104,20 +101,16 @@ async function loadReports() {
 
 // ============ UPDATE KPI CARDS ============
 function updateKPIs(reports) {
-  // Total reports
   document.getElementById('totalSightings').textContent = reports.length;
 
-  // Active hotspots: unique barangays with high severity
   const activeHotspots = new Set(
     reports.filter((r) => r.severity === 'High').map((r) => r.barangay)
   ).size;
   document.getElementById('activeHotspots').textContent = activeHotspots;
 
-  // Active reporters: unique names
   const activeReporters = new Set(reports.map((r) => r.reporter)).size;
   document.getElementById('activeReporters').textContent = activeReporters;
 
-  // Average response time (if exists)
   const validReports = reports.filter((r) => r.response_time_hours);
   if (validReports.length > 0) {
     const avg =
@@ -131,12 +124,12 @@ function updateKPIs(reports) {
 
 // ============ MAP ============
 function initMap() {
-  map = L.map('map').setView([16.63, 120.33], 10);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+  leafletMap = L.map('map').setView([16.63, 120.33], 10);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(leafletMap);
 }
 
 function renderMap() {
-  if (!map) return;
+  if (!leafletMap) return;
   const pts = allReports
     .filter((r) => r.lat && r.lng)
     .map((r) => [
@@ -144,9 +137,9 @@ function renderMap() {
       r.lng,
       r.severity === 'High' ? 1 : r.severity === 'Moderate' ? 0.6 : 0.3,
     ]);
-  if (heatLayer) map.removeLayer(heatLayer);
+  if (heatLayer) leafletMap.removeLayer(heatLayer);
   if (pts.length > 0)
-    heatLayer = L.heatLayer(pts, { radius: 25, blur: 15 }).addTo(map);
+    heatLayer = L.heatLayer(pts, { radius: 25, blur: 15 }).addTo(leafletMap);
 }
 
 // ============ CHARTS ============
@@ -249,69 +242,68 @@ function showHighReports(highReports) {
 
   highReports.forEach((r) => {
     const item = document.createElement('button');
-    item.className = 'list-group-item list-group-item-action d-flex align-items-center gap-3';
+    item.className =
+      'list-group-item list-group-item-action d-flex align-items-center gap-3';
     item.innerHTML = `
-      <img src="${(r.photo && r.photo.trim() !== '' ? r.photo : '/static/icons/icon-192.png')}"
-           class="thumb"
-           style="width:64px;height:64px;border-radius:8px;object-fit:cover;border:2px solid #eee;">
+      <img src="${
+        r.photo && r.photo.trim() !== '' ? r.photo : '/static/icons/icon-192.png'
+      }"
+        class="thumb"
+        style="width:64px;height:64px;border-radius:8px;object-fit:cover;border:2px solid #eee;">
       <div>
-        <strong>${r.barangay || 'Unknown'}${r.municipality ? ', ' + r.municipality : ''}</strong><br>
+        <strong>${r.barangay || 'Unknown'}${
+      r.municipality ? ', ' + r.municipality : ''
+    }</strong><br>
         <small>${r.date || ''} — ${r.reporter || ''}</small>
       </div>
     `;
 
     item.addEventListener('click', () => {
-      const lat = Number(r.lat);
-      const lng = Number(r.lng);
-      if (!map || isNaN(lat) || isNaN(lng)) {
-        console.warn('Invalid GPS data:', lat, lng);
-        return;
-      }
+      const lat = Number(r.lat),
+        lng = Number(r.lng);
+      if (!leafletMap || Number.isNaN(lat) || Number.isNaN(lng)) return;
 
       const modalEl = document.getElementById('highModal');
       const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
 
-      // Wait for modal fade animation to finish completely
       modalEl.addEventListener(
         'hidden.bs.modal',
         () => {
-          // Allow Bootstrap’s fade-out to fully complete before map actions
           setTimeout(() => {
-            map.invalidateSize();
-            document.getElementById('map')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            leafletMap.invalidateSize();
+            document
+              .getElementById('map')
+              ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
-            // ✅ Fly smoothly to the GPS location
-            map.flyTo([lat, lng], 16, { animate: true, duration: 1.2 });
+            leafletMap.flyTo([lat, lng], 16, {
+              animate: true,
+              duration: 1.2,
+            });
 
-            // ✅ Add a permanent marker at that point
-            const marker = L.marker([lat, lng]).addTo(map);
-
-            // ✅ Add a short pulse effect for clarity
+            const marker = L.marker([lat, lng]).addTo(leafletMap);
             const pulse = L.circle([lat, lng], {
-              radius: 50,
+              radius: 40,
               color: 'red',
               fillColor: 'red',
               fillOpacity: 0.25,
-              weight: 2,
-            }).addTo(map);
-            setTimeout(() => {
-              map.removeLayer(pulse);
-            }, 3000);
-          }, 700); // <- wait 700ms so map resize happens AFTER modal fade
+              weight: 3,
+            }).addTo(leafletMap);
+            setTimeout(() => leafletMap.removeLayer(pulse), 3000);
+          }, 700);
         },
         { once: true }
       );
 
-      modal.hide(); // Close the modal
+      modal.hide();
     });
 
     list.appendChild(item);
   });
 
-  // Open the modal
-  bootstrap.Modal.getOrCreateInstance(document.getElementById('highModal')).show();
+  bootstrap.Modal.getOrCreateInstance(
+    document.getElementById('highModal')
+  ).show();
 }
-
 
 
 // ============ INIT ============
