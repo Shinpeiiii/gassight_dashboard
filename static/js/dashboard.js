@@ -21,7 +21,7 @@ function showToast(msg, type = 'info') {
   t.addEventListener('hidden.bs.toast', () => t.remove());
 }
 
-// ============ LOAD REPORTS ============  
+// ============ LOAD REPORTS ============
 async function loadReports() {
   try {
     const response = await fetch('/api/reports');
@@ -44,8 +44,10 @@ async function loadReports() {
           : '/static/uploads/' + r.photo;
       }
 
-      // Determine if status is permanent (Approved or Rejected)
+      // Check if permanent status (Approved or Rejected)
       const isFinalStatus = r.status === 'Approved' || r.status === 'Rejected';
+      const isResolved = r.status === 'Resolved';
+      const isNotResolved = r.status === 'Not Resolved';
 
       row.innerHTML = `
         <td>${r.date || ''}</td>
@@ -74,10 +76,19 @@ async function loadReports() {
           }
         </td>
 
-        <!-- ⚙️ ACTION BUTTONS (Always editable) -->
+        <!-- ⚙️ ACTION BUTTONS -->
         <td class="text-center">
-          <button class="btn btn-primary btn-sm me-1" onclick="updateStatus(${r.id}, 'Resolved')">✔️ Resolved</button>
-          <button class="btn btn-secondary btn-sm" onclick="updateStatus(${r.id}, 'Not Resolved')">⚙️ Not Resolved</button>
+          ${
+            r.status === 'Resolved'
+              ? `<span class="badge bg-primary px-3 py-2">Resolved</span>`
+              : r.status === 'Not Resolved'
+              ? `<span class="badge bg-secondary px-3 py-2 me-2">Not Resolved</span>
+                 <button class="btn btn-outline-dark btn-sm" onclick="changeAction(${r.id})">Change</button>`
+              : `
+                <button class="btn btn-primary btn-sm me-1" onclick="setAction(${r.id}, 'Resolved')">✔️ Resolved</button>
+                <button class="btn btn-secondary btn-sm" onclick="setAction(${r.id}, 'Not Resolved')">⚙️ Not Resolved</button>
+              `
+          }
         </td>
       `;
 
@@ -92,6 +103,7 @@ async function loadReports() {
     showToast('Failed to load reports', 'danger');
   }
 }
+
 
 
 async function updateStatus(reportId, newStatus) {
@@ -136,6 +148,46 @@ async function finalizeStatus(reportId, newStatus) {
   }
 }
 
+// Set Resolved or Not Resolved
+async function setAction(reportId, newStatus) {
+  try {
+    const res = await fetch(`/api/report/${reportId}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      showToast(`🔧 Action set to ${newStatus}`, 'info');
+      loadReports();
+    } else {
+      showToast('Failed to set action', 'danger');
+    }
+  } catch (err) {
+    console.error('Error:', err);
+    showToast('Server error while updating action', 'danger');
+  }
+}
+
+// Change button handler (brings back the two action buttons)
+async function changeAction(reportId) {
+  try {
+    const res = await fetch(`/api/report/${reportId}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: '' }), // reset to blank
+    });
+    if (res.ok) {
+      showToast('Action reset — choose a new one.', 'warning');
+      loadReports();
+    } else {
+      showToast('Failed to reset action', 'danger');
+    }
+  } catch (err) {
+    console.error(err);
+    showToast('Server error while resetting action', 'danger');
+  }
+}
 
 
 // ============ UPDATE KPI CARDS ============
