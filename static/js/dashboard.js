@@ -247,53 +247,53 @@ function showHighReports(highReports) {
   if (!list) return;
   list.innerHTML = '';
 
-  highReports.forEach((r, index) => {
+  highReports.forEach((r) => {
     const item = document.createElement('button');
-    item.className =
-      'list-group-item list-group-item-action d-flex align-items-center gap-3';
+    item.className = 'list-group-item list-group-item-action d-flex align-items-center gap-3';
     item.innerHTML = `
-      <img src="${
-        r.photo && r.photo.trim() !== '' ? r.photo : '/static/icons/icon-192.png'
-      }"
+      <img src="${(r.photo && r.photo.trim() !== '' ? r.photo : '/static/icons/icon-192.png')}"
            class="thumb"
            style="width:64px;height:64px;border-radius:8px;object-fit:cover;border:2px solid #eee;">
       <div>
-        <strong>${r.barangay || 'Unknown'}, ${r.municipality || ''}</strong><br>
+        <strong>${r.barangay || 'Unknown'}${r.municipality ? ', ' + r.municipality : ''}</strong><br>
         <small>${r.date || ''} — ${r.reporter || ''}</small>
       </div>
     `;
 
-    // ✅ Click: hide modal, wait for transition, then zoom map
     item.addEventListener('click', () => {
+      const lat = Number(r.lat), lng = Number(r.lng);
+      if (!map || Number.isNaN(lat) || Number.isNaN(lng)) return;
+
       const modalEl = document.getElementById('highModal');
-      const modalInstance = bootstrap.Modal.getInstance(modalEl);
-      if (modalInstance) modalInstance.hide();
+      const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
 
-      if (r.lat && r.lng && map) {
-        // Wait for Bootstrap fade-out to complete
-        setTimeout(() => {
-          map.invalidateSize(); // reflow Leaflet map after modal closes
-          map.flyTo([r.lat, r.lng], 16, { animate: true, duration: 1.2 });
+      // When the modal is fully hidden, reflow Leaflet and zoom.
+      const onHidden = () => {
+        // Make sure the map is actually visible on screen
+        document.getElementById('map')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
-          // Highlight marker at the location
-          const marker = L.marker([r.lat, r.lng]).addTo(map);
-          marker
-            .bindPopup(
-              `<strong>${r.barangay || ''}</strong><br>${r.reporter || ''}<br>${r.date || ''}`
-            )
-            .openPopup();
+        // Recalculate Leaflet size after overlay removal
+        map.invalidateSize();
 
-          // Remove the marker after a few seconds
-          setTimeout(() => map.removeLayer(marker), 5000);
-        }, 600); // delay ensures modal is fully hidden
-      }
+        // Smooth zoom + temporary focus ring
+        map.flyTo([lat, lng], 16, { animate: true, duration: 1.0 });
+        const pulse = L.circle([lat, lng], { radius: 30, color: 'red', weight: 2, fillOpacity: 0.15 }).addTo(map);
+        setTimeout(() => { try { map.removeLayer(pulse); } catch (_) {} }, 2500);
+
+        // Clean up the one-time listener
+        modalEl.removeEventListener('hidden.bs.modal', onHidden);
+      };
+
+      modalEl.addEventListener('hidden.bs.modal', onHidden, { once: true });
+      modal.hide(); // triggers the hidden event
     });
 
     list.appendChild(item);
   });
 
-  new bootstrap.Modal(document.getElementById('highModal')).show();
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('highModal')).show();
 }
+
 
 
 // ============ INIT ============
