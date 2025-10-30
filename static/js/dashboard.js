@@ -44,6 +44,9 @@ async function loadReports() {
           : '/static/uploads/' + r.photo;
       }
 
+      // Determine if status is permanent (Approved or Rejected)
+      const isFinalStatus = r.status === 'Approved' || r.status === 'Rejected';
+
       row.innerHTML = `
         <td>${r.date || ''}</td>
         <td>${r.reporter || ''}</td>
@@ -61,11 +64,17 @@ async function loadReports() {
 
         <!-- ✅ STATUS BUTTONS -->
         <td class="text-center">
-          <button class="btn btn-success btn-sm me-1" onclick="updateStatus(${r.id}, 'Approved')">✅ Approve</button>
-          <button class="btn btn-danger btn-sm" onclick="updateStatus(${r.id}, 'Rejected')">❌ Reject</button>
+          ${
+            isFinalStatus
+              ? `<span class="badge bg-${r.status === 'Approved' ? 'success' : 'danger'} px-3 py-2">${r.status}</span>`
+              : `
+                <button class="btn btn-success btn-sm me-1" onclick="finalizeStatus(${r.id}, 'Approved')">✅ Approve</button>
+                <button class="btn btn-danger btn-sm" onclick="finalizeStatus(${r.id}, 'Rejected')">❌ Reject</button>
+              `
+          }
         </td>
 
-        <!-- ✅ ACTION BUTTONS -->
+        <!-- ⚙️ ACTION BUTTONS (Always editable) -->
         <td class="text-center">
           <button class="btn btn-primary btn-sm me-1" onclick="updateStatus(${r.id}, 'Resolved')">✔️ Resolved</button>
           <button class="btn btn-secondary btn-sm" onclick="updateStatus(${r.id}, 'Not Resolved')">⚙️ Not Resolved</button>
@@ -83,6 +92,7 @@ async function loadReports() {
     showToast('Failed to load reports', 'danger');
   }
 }
+
 
 async function updateStatus(reportId, newStatus) {
   try {
@@ -104,6 +114,28 @@ async function updateStatus(reportId, newStatus) {
     showToast('⚠️ Could not update report status.', 'danger');
   }
 }
+
+async function finalizeStatus(reportId, newStatus) {
+  try {
+    const res = await fetch(`/api/report/${reportId}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      showToast(`✅ Report marked as ${newStatus}`, 'success');
+      loadReports(); // refresh table so buttons disappear
+    } else {
+      showToast(`❌ Failed to update status`, 'danger');
+    }
+  } catch (err) {
+    console.error('Error updating status:', err);
+    showToast('⚠️ Could not update report status.', 'danger');
+  }
+}
+
 
 
 // ============ UPDATE KPI CARDS ============
