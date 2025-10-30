@@ -4,9 +4,7 @@ let map, heatLayer;
 let allReports = [];
 let severityChart, barangayChart, trendChart;
 
-// ============ HELPER FUNCTIONS ============
-
-// Toast helper (for feedback)
+// Toast notification
 function showToast(msg, type = 'info') {
   const c = document.getElementById('toastContainer');
   if (!c) return;
@@ -24,13 +22,16 @@ function showToast(msg, type = 'info') {
 }
 
 // ============ LOAD REPORTS ============
-
 async function loadReports() {
   try {
     const response = await fetch('/api/reports');
     const reports = await response.json();
     allReports = Array.isArray(reports) ? reports : [];
 
+    // ===== Update KPIs =====
+    updateKPIs(allReports);
+
+    // ===== Update Table =====
     const tableBody = document.querySelector('#reports-table tbody');
     tableBody.innerHTML = '';
 
@@ -70,6 +71,7 @@ async function loadReports() {
       tableBody.appendChild(row);
     });
 
+    // Status update handling
     document.querySelectorAll('.action-select').forEach((select) => {
       select.addEventListener('change', async (e) => {
         const reportId = e.target.dataset.id;
@@ -93,16 +95,39 @@ async function loadReports() {
 
     renderMap();
     updateCharts();
-    showHighAlert(allReports.filter(r => r.severity === 'High'));
-
+    showHighAlert(allReports.filter((r) => r.severity === 'High'));
   } catch (err) {
     console.error('Failed to load reports:', err);
     showToast('Failed to load reports', 'danger');
   }
 }
 
-// ============ MAP (LEAFLET HEATMAP) ============
+// ============ UPDATE KPI CARDS ============
+function updateKPIs(reports) {
+  // Total reports
+  document.getElementById('totalSightings').textContent = reports.length;
 
+  // Active hotspots: unique barangays with high severity
+  const activeHotspots = new Set(
+    reports.filter((r) => r.severity === 'High').map((r) => r.barangay)
+  ).size;
+  document.getElementById('activeHotspots').textContent = activeHotspots;
+
+  // Active reporters: unique names
+  const activeReporters = new Set(reports.map((r) => r.reporter)).size;
+  document.getElementById('activeReporters').textContent = activeReporters;
+
+  // Average response time (if exists)
+  const validReports = reports.filter((r) => r.response_time_hours);
+  if (validReports.length > 0) {
+    const avg = validReports.reduce((a, b) => a + b.response_time_hours, 0) / validReports.length;
+    document.getElementById('avgResponse').textContent = Math.round(avg);
+  } else {
+    document.getElementById('avgResponse').textContent = 0;
+  }
+}
+
+// ============ MAP ============
 function initMap() {
   map = L.map('map').setView([16.63, 120.33], 10);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
@@ -117,15 +142,11 @@ function renderMap() {
       r.lng,
       r.severity === 'High' ? 1 : r.severity === 'Moderate' ? 0.6 : 0.3,
     ]);
-
   if (heatLayer) map.removeLayer(heatLayer);
-  if (pts.length > 0) {
-    heatLayer = L.heatLayer(pts, { radius: 25, blur: 15 }).addTo(map);
-  }
+  if (pts.length > 0) heatLayer = L.heatLayer(pts, { radius: 25, blur: 15 }).addTo(map);
 }
 
 // ============ CHARTS ============
-
 async function updateCharts() {
   const sevData = await fetchJSON('/api/severity-distribution');
   const brgData = await fetchJSON('/api/barangay-reports');
@@ -141,10 +162,7 @@ async function updateCharts() {
       type: 'pie',
       data: {
         labels: Object.keys(sevData),
-        datasets: [{
-          data: Object.values(sevData),
-          backgroundColor: ['#7cb342','#fbc02d','#e53935'],
-        }],
+        datasets: [{ data: Object.values(sevData), backgroundColor: ['#7cb342','#fbc02d','#e53935'] }],
       },
     });
   }
@@ -154,8 +172,8 @@ async function updateCharts() {
     barangayChart = new Chart(brgCtx, {
       type: 'bar',
       data: {
-        labels: brgData.map(x => x.name),
-        datasets: [{ label: 'Reports', data: brgData.map(x => x.reports), backgroundColor: '#42a5f5' }],
+        labels: brgData.map((x) => x.name),
+        datasets: [{ label: 'Reports', data: brgData.map((x) => x.reports), backgroundColor: '#42a5f5' }],
       },
       options: { plugins: { legend: { display: false } } },
     });
@@ -166,13 +184,8 @@ async function updateCharts() {
     trendChart = new Chart(trnCtx, {
       type: 'line',
       data: {
-        labels: trendData.map(x => x.week),
-        datasets: [{
-          label: 'Sightings',
-          data: trendData.map(x => x.sightings),
-          borderColor: '#d32f2f',
-          tension: 0.3,
-        }],
+        labels: trendData.map((x) => x.week),
+        datasets: [{ label: 'Sightings', data: trendData.map((x) => x.sightings), borderColor: '#d32f2f', tension: 0.3 }],
       },
       options: { plugins: { legend: { display: false } } },
     });
@@ -191,14 +204,12 @@ async function fetchJSON(endpoint) {
 }
 
 // ============ IMAGE PREVIEW ============
-
 function openImage(url) {
   const imgWindow = window.open('');
   imgWindow.document.write(`<img src="${url}" style="max-width:100%;height:auto;">`);
 }
 
-// ============ HIGH SEVERITY ALERT ============
-
+// ============ HIGH ALERT ============
 function showHighAlert(highReports) {
   const alert = document.getElementById('alertIndicator');
   if (!alert) return;
@@ -234,10 +245,9 @@ function showHighReports(highReports) {
   new bootstrap.Modal(document.getElementById('highModal')).show();
 }
 
-// ============ INITIALIZATION ============
-
+// ============ INIT ============
 window.addEventListener('load', () => {
   initMap();
   loadReports();
-  setInterval(loadReports, 15000); // refresh every 15s
+  setInterval(loadReports, 15000);
 });
