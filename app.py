@@ -69,7 +69,7 @@ class Report(db.Model):
     province = db.Column(db.String(120))
     severity = db.Column(db.String(50))
     status = db.Column(db.String(50), default="Pending")  # ✅ Permanent status (Approved/Rejected)
-    action_status = db.Column(db.String(50), default="")   # ✅ For Resolved / Not Resolved
+    action_status = db.Column(db.String(50), default="Not Resolved")   # ✅ For Resolved / Not Resolved
     photo = db.Column(db.String(255))
     lat = db.Column(db.Float)
     lng = db.Column(db.Float)
@@ -222,44 +222,63 @@ def submit_report():
     try:
         user_id = int(get_jwt_identity())
 
-        # ✅ Detect content type (JSON or multipart)
+        # Cooldown 30 seconds to prevent consecutive spam
+        last = Report.query.filter_by(user_id=user_id).order_by(Report.date.desc()).first()
+        if last:
+            delta = datetime.utcnow() - (last.date or datetime.utcnow())
+            if delta.total_seconds() < 30:
+                return jsonify({"error": "Please wait before submitting another report."}), 429
+
+        # Accept JSON and multipart
         if request.content_type and request.content_type.startswith('multipart/form-data'):
-            data = request.form
-        else:
-            data = request.get_json(force=True)
+            form = request.form
+            reporter     = form.get('reporter', '')
+            barangay     = form.get('barangay', '')
+            municipality = form.get('municipality', '')
+            province     = form.get('province', '')
+            severity     = form.get('severity', 'Low')
+            lat          = float(form.get('lat')) if form.get('lat') else None
+            lng          = float(form.get('lng')) if form.get('lng') else None
 
-        # ✅ Handle photo upload (optional)
-        photo_path = ""
-        if 'photo' in request.files:
-            photo_file = request.files['photo']
-            if photo_file.filename != "":
-                filename = secure_filename(photo_file.filename)
-                unique_name = f"{uuid.uuid4().hex}_{filename}"
-                save_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
-                photo_file.save(save_path)
-                photo_path = f"/static/uploads/{unique_name}"
+            photo_url = ''
+            if 'photo' in request.files and request.files['photo'].filename:
+                f = request.files['photo']
+                fname = secure_filename(f"{uuid.uuid4().hex}_{f.filename}")
+                path = os.path.join(app.config['UPLOAD_FOLDER'], fname)
+                f.save(path)
+                photo_url = f"/static/uploads/{fname}"
 
-        # ✅ Create new report
+        else:  # JSON
+            data        = request.get_json(force=True)
+            reporter     = data.get('reporter', '')
+            barangay     = data.get('barangay', '')
+            municipality = data.get('municipality', '')
+            province     = data.get('province', '')
+            severity     = data.get('severity', 'Low')
+            lat          = float(data.get('lat')) if data.get('lat') else None
+            lng          = float(data.get('lng')) if data.get('lng') else None
+            photo_url    = data.get('photo_url', '')
+
         new_report = Report(
-            reporter=data.get("reporter", ""),
-            barangay=data.get("barangay", ""),
-            municipality=data.get("municipality", ""),
-            province=data.get("province", ""),
-            severity=data.get("severity", "Low"),
-            lat=float(data.get("lat")) if data.get("lat") else None,
-            lng=float(data.get("lng")) if data.get("lng") else None,
-            photo=photo_path,
+            reporter=reporter,
+            barangay=barangay,
+            municipality=municipality,
+            province=province,
+            severity=severity,
+            lat=lat, lng=lng,
+            photo=photo_url,
             status="Pending",
+            action_status="Not Resolved",  # default for dashboard action
             user_id=user_id
         )
-
         db.session.add(new_report)
         db.session.commit()
+        return jsonify({"message": "Report submitted", "report_id": new_report.id}), 201
 
-        return jsonify({
-            "message": "✅ Report submitted successfully!",
-            "report_id": new_report.id
-        }), 201
+    except Exception as e:
+        print("submit_report error:", e)
+        return jsonify({"error": str(e)}), 422
+
 
     except Exception as e:
         print("⚠️ submit_report error:", e)
@@ -272,7 +291,9 @@ def submit_report():
 @app.route('/api/reports')
 def get_reports():
     reports = Report.query.order_by(Report.date.desc()).all()
-    data = [{
+    data = []
+    for r in reports:
+      data.append({
         "id": r.id,
         "date": r.date.strftime("%Y-%m-%d %H:%M") if r.date else "",
         "reporter": r.reporter or "Unknown",
@@ -281,11 +302,13 @@ def get_reports():
         "province": r.province or "",
         "severity": r.severity or "Low",
         "status": r.status or "Pending",
+        "action_status": r.action_status or "Not Resolved",  # <-- include
         "photo": r.photo or "",
         "lat": r.lat,
         "lng": r.lng
-    } for r in reports]
+      })
     return jsonify(data)
+
 
 @app.route('/api/barangays')
 def api_barangays():
@@ -331,36 +354,32 @@ def get_kpis():
 
 @app.route('/api/report/<int:report_id>/status', methods=['PUT'])
 def update_report_status(report_id):
-    report = Report.query.get(report_id)
-    if not report:
+    r = Report.query.get(report_id)
+    if not r:
         return jsonify({"error": "Report not found"}), 404
-
-    data = request.get_json()
-    new_status = data.get("status")
-    target = data.get("target", "status")  # 'status' or 'action'
-
-    if target == "status":
-        # Only allow permanent statuses
-        if new_status in ["Approved", "Rejected"]:
-            report.status = new_status
-        else:
-            return jsonify({"error": "Invalid permanent status"}), 400
-    elif target == "action":
-        # For Resolved / Not Resolved
-        if new_status in ["Resolved", "Not Resolved", ""]:
-            report.action_status = new_status
-        else:
-            return jsonify({"error": "Invalid action status"}), 400
-    else:
-        return jsonify({"error": "Invalid target"}), 400
-
+    new_status = (request.get_json() or {}).get("status")
+    if new_status not in {"Pending", "Approved", "Rejected"}:
+        return jsonify({"error": "Invalid status"}), 400
+    r.status = new_status
     db.session.commit()
-    return jsonify({"message": f"Report {report_id} {target} set to {new_status}"}), 200
+    return jsonify({"message": "Status updated"}), 200
+
+@app.route('/api/report/<int:report_id>/action_status', methods=['PUT'])
+def update_report_action_status(report_id):
+    r = Report.query.get(report_id)
+    if not r:
+        return jsonify({"error": "Report not found"}), 404
+    new_state = (request.get_json() or {}).get("action_status")
+    if new_state not in {"Resolved", "Not Resolved"}:
+        return jsonify({"error": "Invalid action_status"}), 400
+    r.action_status = new_state
+    db.session.commit()
+    return jsonify({"message": "Action updated"}), 200
 
 
 # -----------------------------
 # Run
 # -----------------------------
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=True)
+
