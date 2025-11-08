@@ -101,8 +101,9 @@ with app.app_context():
 # -----------------------------
 @app.route('/service-worker.js')
 def service_worker():
-    # File should live at project root (same folder as app.py)
-    return send_from_directory('.', 'service-worker.js')
+    # Serves /static/service-worker.js at the root URL /service-worker.js
+    return app.send_static_file('service-worker.js')
+
 
 @app.route('/static/<path:filename>')
 def static_files(filename):
