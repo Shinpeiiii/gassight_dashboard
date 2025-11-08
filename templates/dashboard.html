@@ -232,11 +232,12 @@ window.addEventListener('load', () => {
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/static/service-worker.js')
-      .then(() => console.log('✅ Service Worker registered for admin'))
+      .then(() => console.log('✅ Service Worker registered for dashboard'))
       .catch(err => console.error('SW registration failed:', err));
   });
 }
 </script>
+
 
 
 
