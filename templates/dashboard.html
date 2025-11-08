@@ -228,5 +228,16 @@ window.addEventListener('load', () => {
 
 <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/static/service-worker.js')
+      .then(() => console.log('✅ Service Worker registered'))
+      .catch(err => console.error('SW registration failed:', err));
+  });
+}
+</script>
+
+
 </body>
 </html>
