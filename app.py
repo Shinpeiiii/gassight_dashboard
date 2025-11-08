@@ -20,6 +20,14 @@ from flask_cors import CORS
 
 from flask import send_from_directory
 
+# near the bottom of app.py
+from flask import send_from_directory
+
+@app.route('/service-worker.js')
+def service_worker():
+    return send_from_directory('.', 'service-worker.js')
+
+
 
 # -----------------------------
 # App setup
@@ -379,14 +387,10 @@ def update_report_action_status(report_id):
     db.session.commit()
     return jsonify({"message": "Action updated"}), 200
 
-    @app.route('/service-worker.js')
-def service_worker():
-    return send_from_directory('.', 'service-worker.js')
-
 
 # -----------------------------
 # Run
 # -----------------------------
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=True)
+    app.run(host='0.0.0.0', port=5000)
 
