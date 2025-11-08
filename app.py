@@ -18,6 +18,9 @@ from flask_jwt_extended import (
 )
 from flask_cors import CORS
 
+from flask import send_from_directory
+
+
 # -----------------------------
 # App setup
 # -----------------------------
@@ -375,6 +378,10 @@ def update_report_action_status(report_id):
     r.action_status = new_state
     db.session.commit()
     return jsonify({"message": "Action updated"}), 200
+
+    @app.route('/service-worker.js')
+def service_worker():
+    return send_from_directory('.', 'service-worker.js')
 
 
 # -----------------------------
