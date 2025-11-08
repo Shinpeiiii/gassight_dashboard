@@ -4,7 +4,7 @@ let leafletMap, heatLayer;
 let allReports = [];
 let severityChart, barangayChart, trendChart;
 
-// Toast notification
+/* ---------------- Toast ---------------- */
 function showToast(msg, type = 'info') {
   const c = document.getElementById('toastContainer');
   if (!c) return;
@@ -16,180 +16,44 @@ function showToast(msg, type = 'info') {
       <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
     </div>`;
   c.appendChild(t);
-  const bsToast = new bootstrap.Toast(t, { delay: 3000 });
+  const bsToast = new bootstrap.Toast(t, { delay: 2500 });
   bsToast.show();
   t.addEventListener('hidden.bs.toast', () => t.remove());
 }
 
-// ============ LOAD REPORTS ============
+/* ---------------- Fetch helper ---------------- */
+async function fetchJSON(endpoint, opts = {}) {
+  try {
+    const res = await fetch(endpoint, opts);
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return await res.json();
+  } catch (e) {
+    console.error('fetchJSON error:', endpoint, e);
+    return null;
+  }
+}
+
+/* ---------------- Reports ---------------- */
 async function loadReports() {
-  try {
-    const response = await fetch('/api/reports');
-    const reports = await response.json();
-    allReports = Array.isArray(reports) ? reports : [];
-
-    updateKPIs(allReports);
-
-    const tableBody = document.querySelector('#reports-table tbody');
-    tableBody.innerHTML = '';
-
-    allReports.forEach((r) => {
-      const row = document.createElement('tr');
-      if (r.severity === 'High') row.classList.add('table-danger');
-
-      let photoUrl = '';
-      if (r.photo && r.photo.trim() !== '') {
-        photoUrl = r.photo.startsWith('/static/')
-          ? r.photo
-          : '/static/uploads/' + r.photo;
-      }
-
-      // Check if permanent status (Approved or Rejected)
-      const isFinalStatus = r.status === 'Approved' || r.status === 'Rejected';
-      const isResolved = r.action_status === 'Resolved';
-      const isNotResolved = r.action_status === 'Not Resolved';
-
-
-      row.innerHTML = `
-        <td>${r.date || ''}</td>
-        <td>${r.reporter || ''}</td>
-        <td>${r.barangay && r.municipality ? `${r.barangay}, ${r.municipality}` : ''}</td>
-        <td>${r.severity || ''}</td>
-        <td>
-          ${
-            photoUrl
-              ? `<img src="${photoUrl}" alt="photo"
-                   style="width:60px;height:60px;object-fit:cover;border-radius:6px;cursor:pointer"
-                   onclick="openImage('${photoUrl}')">`
-              : '<span class="text-muted">No photo</span>'
-          }
-        </td>
-
-        <!-- ✅ STATUS BUTTONS -->
-        <td class="text-center">
-          ${
-            isFinalStatus
-              ? `<span class="badge bg-${r.status === 'Approved' ? 'success' : 'danger'} px-3 py-2">${r.status}</span>`
-              : `
-                <button class="btn btn-success btn-sm me-1" onclick="finalizeStatus(${r.id}, 'Approved')">✅ Approve</button>
-                <button class="btn btn-danger btn-sm" onclick="finalizeStatus(${r.id}, 'Rejected')">❌ Reject</button>
-              `
-          }
-        </td>
-
-        <!-- ⚙️ ACTION BUTTONS -->
-        <td class="text-center">
-          ${
-            r.action_status === 'Resolved'
-              ? `<span class="badge bg-primary px-3 py-2">Resolved</span>`
-              : r.action_status === 'Not Resolved'
-              ? `<span class="badge bg-secondary px-3 py-2 me-2">Not Resolved</span>
-                 <button class="btn btn-outline-dark btn-sm" onclick="changeAction(${r.id})">Change</button>`
-              : `
-                <button class="btn btn-primary btn-sm me-1" onclick="setAction(${r.id}, 'Resolved')">✔️ Resolved</button>
-                <button class="btn btn-secondary btn-sm" onclick="setAction(${r.id}, 'Not Resolved')">⚙️ Not Resolved</button>
-              `
-          }
-        </td>
-      `;
-
-      tableBody.appendChild(row);
-    });
-
-    renderMap();
-    updateCharts();
-    showHighAlert(allReports.filter((r) => r.severity === 'High'));
-  } catch (err) {
-    console.error('Failed to load reports:', err);
+  const data = await fetchJSON('/api/reports');
+  if (!data) {
     showToast('Failed to load reports', 'danger');
+    return;
   }
+
+  allReports = data;
+
+  updateKPIs(allReports);
+  renderTable(allReports);
+  renderMap();
+  updateCharts();
+
+  // alert badge
+  const highs = allReports.filter((r) => r.severity === 'High');
+  showHighAlert(highs);
 }
 
-
-
-async function updateStatus(reportId, newStatus) {
-  try {
-    const res = await fetch(`/api/report/${reportId}/status`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: newStatus }),
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      showToast(`✅ ${data.message || `Report ${reportId} updated`}`, 'success');
-      loadReports();
-    } else {
-      showToast(`❌ Failed to update (HTTP ${res.status})`, 'danger');
-    }
-  } catch (err) {
-    console.error('Error updating status:', err);
-    showToast('⚠️ Could not update report status.', 'danger');
-  }
-}
-
-async function finalizeStatus(reportId, newStatus) {
-  try {
-    const res = await fetch(`/api/report/${reportId}/status`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target: 'status', status: newStatus }),
-    });
-    if (res.ok) {
-      showToast(`✅ Report marked as ${newStatus}`, 'success');
-      loadReports();
-    } else {
-      showToast('❌ Failed to update status', 'danger');
-    }
-  } catch (err) {
-    console.error('Error updating status:', err);
-    showToast('⚠️ Could not update report status.', 'danger');
-  }
-}
-
-
-async function setAction(reportId, newStatus) {
-  try {
-    const res = await fetch(`/api/report/${reportId}/status`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target: 'action', status: newStatus }),
-    });
-    if (res.ok) {
-      showToast(`🔧 Action set to ${newStatus}`, 'info');
-      loadReports();
-    } else {
-      showToast('Failed to set action', 'danger');
-    }
-  } catch (err) {
-    console.error('Error:', err);
-    showToast('Server error while updating action', 'danger');
-  }
-}
-
-
-async function changeAction(reportId) {
-  try {
-    const res = await fetch(`/api/report/${reportId}/status`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target: 'action', status: '' }),
-    });
-    if (res.ok) {
-      showToast('Action reset — choose a new one.', 'warning');
-      loadReports();
-    } else {
-      showToast('Failed to reset action', 'danger');
-    }
-  } catch (err) {
-    console.error(err);
-    showToast('Server error while resetting action', 'danger');
-  }
-}
-
-
-
-// ============ UPDATE KPI CARDS ============
+/* ---------------- KPI cards ---------------- */
 function updateKPIs(reports) {
   document.getElementById('totalSightings').textContent = reports.length;
 
@@ -201,18 +65,116 @@ function updateKPIs(reports) {
   const activeReporters = new Set(reports.map((r) => r.reporter)).size;
   document.getElementById('activeReporters').textContent = activeReporters;
 
-  const validReports = reports.filter((r) => r.response_time_hours);
-  if (validReports.length > 0) {
-    const avg =
-      validReports.reduce((a, b) => a + b.response_time_hours, 0) /
-      validReports.length;
-    document.getElementById('avgResponse').textContent = Math.round(avg);
+  document.getElementById('avgResponse').textContent = 0;
+}
+
+/* ---------------- Table ---------------- */
+function renderTable(reports) {
+  const tbody = document.querySelector('#reports-table tbody');
+  tbody.innerHTML = '';
+
+  reports.forEach((r) => {
+    const tr = document.createElement('tr');
+    if (r.severity === 'High') tr.classList.add('table-danger');
+
+    const hasPhoto = r.photo && r.photo.trim() !== '';
+    const photoUrl = hasPhoto
+      ? (r.photo.startsWith('/static/') ? r.photo : '/static/uploads/' + r.photo)
+      : '';
+
+    // Status pill
+    const statusHtml = (() => {
+      const s = r.status || 'Pending';
+      const map = { Pending: 'secondary', Approved: 'success', Rejected: 'danger' };
+      return `<span class="badge rounded-pill text-bg-${map[s] || 'secondary'}">${s}</span>`;
+    })();
+
+    // Action (resolved/not resolved) pill + change button
+    const actionState = r.action_status || 'Not Resolved';
+    const actionColor = actionState === 'Resolved' ? 'primary' : 'secondary';
+
+    tr.innerHTML = `
+      <td>${r.date || ''}</td>
+      <td>${r.reporter || ''}</td>
+      <td>
+        ${r.barangay && r.municipality ? `${r.barangay}, ${r.municipality}` : ''}
+        <br>
+        <small class="text-muted" style="cursor:pointer"
+               onclick="focusOnMap(${Number(r.lat)}, ${Number(r.lng)})">
+          📍 ${r.lat?.toFixed ? r.lat.toFixed(4) : r.lat}, ${r.lng?.toFixed ? r.lng.toFixed(4) : r.lng}
+        </small>
+      </td>
+      <td>${r.severity || ''}</td>
+      <td>
+        ${
+          photoUrl
+            ? `<img src="${photoUrl}" alt="photo"
+                 style="width:60px;height:60px;object-fit:cover;border-radius:6px;cursor:pointer"
+                 onclick="openImage('${photoUrl}')">`
+            : '<span class="text-muted">No photo</span>'
+        }
+      </td>
+
+      <!-- Status (PERMANENT: approve/reject) -->
+      <td>
+        ${statusHtml}
+        <div class="mt-2 d-flex gap-2">
+          <button class="btn btn-sm btn-success" onclick="updateStatus(${r.id}, 'Approved')">✔ Approve</button>
+          <button class="btn btn-sm btn-danger"  onclick="updateStatus(${r.id}, 'Rejected')">✖ Reject</button>
+        </div>
+      </td>
+
+      <!-- Action (NOT permanent: toggle, change anytime) -->
+      <td>
+        <span id="action-pill-${r.id}" class="badge rounded-pill text-bg-${actionColor}">${actionState}</span>
+        <button class="btn btn-sm btn-outline-secondary ms-2" onclick="toggleAction(${r.id})">Change</button>
+      </td>
+    `;
+
+    tbody.appendChild(tr);
+  });
+}
+
+/* ---- Status & Action updaters ---- */
+async function updateStatus(id, newStatus) {
+  const ok = await fetch(`/api/report/${id}/status`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: newStatus }),
+  }).then((r) => r.ok).catch(() => false);
+
+  if (ok) {
+    showToast(`Status saved: ${newStatus}`, 'success');
+    loadReports();
   } else {
-    document.getElementById('avgResponse').textContent = 0;
+    showToast('Failed to save status', 'danger');
   }
 }
 
-// ============ MAP ============
+async function toggleAction(id) {
+  // read current
+  const pill = document.getElementById(`action-pill-${id}`);
+  if (!pill) return;
+  const current = pill.textContent.trim();
+  const next = current === 'Resolved' ? 'Not Resolved' : 'Resolved';
+
+  const ok = await fetch(`/api/report/${id}/action_status`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action_status: next }),
+  }).then((r) => r.ok).catch(() => false);
+
+  if (ok) {
+    pill.textContent = next;
+    pill.className =
+      'badge rounded-pill ' + (next === 'Resolved' ? 'text-bg-primary' : 'text-bg-secondary');
+    showToast(`Action set to ${next}`, 'info');
+  } else {
+    showToast('Failed to update action', 'danger');
+  }
+}
+
+/* ---------------- Map ---------------- */
 function initMap() {
   leafletMap = L.map('map').setView([16.63, 120.33], 10);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(leafletMap);
@@ -220,23 +182,38 @@ function initMap() {
 
 function renderMap() {
   if (!leafletMap) return;
+
+  // ❗ Heatmap only from APPROVED reports
   const pts = allReports
-    .filter((r) => r.lat && r.lng)
+    .filter((r) => r.lat && r.lng && r.status === 'Approved')
     .map((r) => [
-      r.lat,
-      r.lng,
+      Number(r.lat),
+      Number(r.lng),
       r.severity === 'High' ? 1 : r.severity === 'Moderate' ? 0.6 : 0.3,
     ]);
+
   if (heatLayer) leafletMap.removeLayer(heatLayer);
-  if (pts.length > 0)
-    heatLayer = L.heatLayer(pts, { radius: 25, blur: 15 }).addTo(leafletMap);
+
+  if (pts.length) {
+    heatLayer = L.heatLayer(pts, {
+      radius: 25,
+      blur: 15,
+      gradient: { 0.3: 'orange', 0.6: 'red', 1.0: 'darkred' },
+    }).addTo(leafletMap);
+  }
 }
 
-// ============ CHARTS ============
+function focusOnMap(lat, lng) {
+  if (!leafletMap || isNaN(lat) || isNaN(lng)) return;
+  leafletMap.flyTo([lat, lng], 16);
+  L.marker([lat, lng]).addTo(leafletMap).bindPopup(`📍 ${lat}, ${lng}`).openPopup();
+}
+
+/* ---------------- Charts ---------------- */
 async function updateCharts() {
-  const sevData = await fetchJSON('/api/severity-distribution');
-  const brgData = await fetchJSON('/api/barangay-reports');
-  const trendData = await fetchJSON('/api/trend');
+  const sevData = await fetchJSON('/api/severity-distribution') || {};
+  const brgData = await fetchJSON('/api/barangay-reports') || [];
+  const trendData = await fetchJSON('/api/trend') || [];
 
   if (severityChart) severityChart.destroy();
   if (barangayChart) barangayChart.destroy();
@@ -248,12 +225,7 @@ async function updateCharts() {
       type: 'pie',
       data: {
         labels: Object.keys(sevData),
-        datasets: [
-          {
-            data: Object.values(sevData),
-            backgroundColor: ['#7cb342', '#fbc02d', '#e53935'],
-          },
-        ],
+        datasets: [{ data: Object.values(sevData), backgroundColor: ['#7cb342','#fbc02d','#e53935'] }],
       },
     });
   }
@@ -264,13 +236,7 @@ async function updateCharts() {
       type: 'bar',
       data: {
         labels: brgData.map((x) => x.name),
-        datasets: [
-          {
-            label: 'Reports',
-            data: brgData.map((x) => x.reports),
-            backgroundColor: '#42a5f5',
-          },
-        ],
+        datasets: [{ label: 'Reports', data: brgData.map((x) => x.reports), backgroundColor: '#42a5f5' }],
       },
       options: { plugins: { legend: { display: false } } },
     });
@@ -282,47 +248,27 @@ async function updateCharts() {
       type: 'line',
       data: {
         labels: trendData.map((x) => x.week),
-        datasets: [
-          {
-            label: 'Sightings',
-            data: trendData.map((x) => x.sightings),
-            borderColor: '#d32f2f',
-            tension: 0.3,
-          },
-        ],
+        datasets: [{ label: 'Sightings', data: trendData.map((x) => x.sightings), borderColor: '#d32f2f', tension: 0.3 }],
       },
       options: { plugins: { legend: { display: false } } },
     });
   }
 }
 
-async function fetchJSON(endpoint) {
-  try {
-    const res = await fetch(endpoint);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } catch (e) {
-    console.error(`Fetch error: ${endpoint}`, e);
-    return [];
-  }
-}
-
-// ============ IMAGE PREVIEW ============
+/* ---------------- Image preview ---------------- */
 function openImage(url) {
-  const imgWindow = window.open('');
-  imgWindow.document.write(`<img src="${url}" style="max-width:100%;height:auto;">`);
+  const w = window.open('');
+  w.document.write(`<img src="${url}" style="max-width:100%;height:auto;">`);
 }
 
-// ============ HIGH ALERT ============
+/* ---------------- Alert (High severity) ---------------- */
 function showHighAlert(highReports) {
-  const alert = document.getElementById('alertIndicator');
-  if (!alert) return;
-  if (!highReports.length) {
-    alert.classList.add('d-none');
-    return;
-  }
-  alert.classList.remove('d-none');
-  alert.onclick = () => showHighReports(highReports);
+  const indicator = document.getElementById('alertIndicator');
+  if (!indicator) return;
+  if (!highReports.length) return indicator.classList.add('d-none');
+
+  indicator.classList.remove('d-none');
+  indicator.onclick = () => showHighReports(highReports);
 }
 
 function showHighReports(highReports) {
@@ -331,72 +277,32 @@ function showHighReports(highReports) {
   list.innerHTML = '';
 
   highReports.forEach((r) => {
-    const item = document.createElement('button');
-    item.className =
-      'list-group-item list-group-item-action d-flex align-items-center gap-3';
-    item.innerHTML = `
-      <img src="${
-        r.photo && r.photo.trim() !== '' ? r.photo : '/static/icons/icon-192.png'
-      }"
-        class="thumb"
-        style="width:64px;height:64px;border-radius:8px;object-fit:cover;border:2px solid #eee;">
-      <div>
-        <strong>${r.barangay || 'Unknown'}${
-      r.municipality ? ', ' + r.municipality : ''
-    }</strong><br>
-        <small>${r.date || ''} — ${r.reporter || ''}</small>
-      </div>
-    `;
-
-    item.addEventListener('click', () => {
-      const lat = Number(r.lat),
-        lng = Number(r.lng);
-      if (!leafletMap || Number.isNaN(lat) || Number.isNaN(lng)) return;
-
+    const btn = document.createElement('button');
+    btn.className = 'list-group-item list-group-item-action d-flex align-items-center gap-3';
+    btn.innerHTML = `
+      <img src="${r.photo || '/static/icons/icon-192.png'}" class="thumb"
+           style="width:64px;height:64px;border-radius:8px;object-fit:cover;border:2px solid #eee;">
+      <div><strong>${r.barangay || 'Unknown'}${r.municipality ? ', ' + r.municipality : ''}</strong><br>
+      <small>${r.date || ''} — ${r.reporter || ''}</small></div>`;
+    btn.addEventListener('click', () => {
       const modalEl = document.getElementById('highModal');
       const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
-
-      modalEl.addEventListener(
-        'hidden.bs.modal',
-        () => {
-          setTimeout(() => {
-            leafletMap.invalidateSize();
-            document
-              .getElementById('map')
-              ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-            leafletMap.flyTo([lat, lng], 16, {
-              animate: true,
-              duration: 1.2,
-            });
-
-            const marker = L.marker([lat, lng]).addTo(leafletMap);
-            const pulse = L.circle([lat, lng], {
-              radius: 40,
-              color: 'red',
-              fillColor: 'red',
-              fillOpacity: 0.25,
-              weight: 3,
-            }).addTo(leafletMap);
-            setTimeout(() => leafletMap.removeLayer(pulse), 3000);
-          }, 700);
-        },
-        { once: true }
-      );
-
+      modalEl.addEventListener('hidden.bs.modal', () => {
+        setTimeout(() => {
+          leafletMap.invalidateSize();
+          document.getElementById('map')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          focusOnMap(Number(r.lat), Number(r.lng));
+        }, 350);
+      }, { once: true });
       modal.hide();
     });
-
-    list.appendChild(item);
+    list.appendChild(btn);
   });
 
-  bootstrap.Modal.getOrCreateInstance(
-    document.getElementById('highModal')
-  ).show();
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('highModal')).show();
 }
 
-
-// ============ INIT ============
+/* ---------------- Init ---------------- */
 window.addEventListener('load', () => {
   initMap();
   loadReports();
