@@ -11,30 +11,19 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from functools import wraps
 from datetime import datetime
-import os, random, uuid
+import os, uuid
 
 from flask_jwt_extended import (
     JWTManager, create_access_token, jwt_required, get_jwt_identity
 )
 from flask_cors import CORS
 
-from flask import send_from_directory
-
-# near the bottom of app.py
-from flask import send_from_directory
-
-@app.route('/service-worker.js')
-def service_worker():
-    return send_from_directory('.', 'service-worker.js')
-
-
-
 # -----------------------------
 # App setup
 # -----------------------------
 app = Flask(__name__, static_folder='static', template_folder='templates')
 
-# ✅ CORS fix for all /api routes
+# CORS for all /api routes
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-change-me')
@@ -42,7 +31,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:/
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'super-secret-key')
 
-# ✅ Fix session cookie for Render HTTPS handling
+# Session cookie hints when behind Render HTTPS
 app.config['SESSION_COOKIE_SECURE'] = False
 app.config['SESSION_COOKIE_SAMESITE'] = "Lax"
 
@@ -79,25 +68,50 @@ class Report(db.Model):
     municipality = db.Column(db.String(120))
     province = db.Column(db.String(120))
     severity = db.Column(db.String(50))
-    status = db.Column(db.String(50), default="Pending")  # ✅ Permanent status (Approved/Rejected)
-    action_status = db.Column(db.String(50), default="Not Resolved")   # ✅ For Resolved / Not Resolved
+    # Permanent admin decision (Approved / Rejected / Pending)
+    status = db.Column(db.String(50), default="Pending")
+    # Dashboard “action” (Resolved / Not Resolved) – editable anytime
+    action_status = db.Column(db.String(50), default="Not Resolved")
     photo = db.Column(db.String(255))
     lat = db.Column(db.Float)
     lng = db.Column(db.Float)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
 
+
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
 
+
+# Create tables and make sure action_status exists even on old DBs
 with app.app_context():
     db.create_all()
+    try:
+        # Add column if missing (SQLite only)
+        insp = db.engine.execute("PRAGMA table_info(report)").fetchall()
+        cols = {row[1] for row in insp}
+        if 'action_status' not in cols:
+            db.engine.execute("ALTER TABLE report ADD COLUMN action_status VARCHAR(50) DEFAULT 'Not Resolved'")
+    except Exception as _e:
+        # If it fails (e.g., non-SQLite), we simply skip; your DB likely already has it.
+        pass
+
+# -----------------------------
+# Static files & PWA helper
+# -----------------------------
+@app.route('/service-worker.js')
+def service_worker():
+    # File should live at project root (same folder as app.py)
+    return send_from_directory('.', 'service-worker.js')
+
+@app.route('/static/<path:filename>')
+def static_files(filename):
+    return send_from_directory(app.static_folder, filename)
 
 # -----------------------------
 # Helpers
 # -----------------------------
 def admin_required(view_func):
-    @wraps(view_func)
     def wrapper(*args, **kwargs):
         if not current_user.is_authenticated:
             return redirect(url_for('login'))
@@ -105,6 +119,7 @@ def admin_required(view_func):
             flash("⚠️ Admin access required.", "danger")
             return redirect(url_for('no_access'))
         return view_func(*args, **kwargs)
+    wrapper.__name__ = view_func.__name__
     return wrapper
 
 # -----------------------------
@@ -173,10 +188,6 @@ def logout():
     flash("You’ve been logged out.", "info")
     return redirect(url_for('login'))
 
-@app.route('/static/<path:filename>')
-def static_files(filename):
-    return send_from_directory(app.static_folder, filename)
-
 @app.route('/offline')
 def offline():
     return render_template('offline.html')
@@ -233,14 +244,14 @@ def submit_report():
     try:
         user_id = int(get_jwt_identity())
 
-        # Cooldown 30 seconds to prevent consecutive spam
+        # simple cooldown (30s)
         last = Report.query.filter_by(user_id=user_id).order_by(Report.date.desc()).first()
         if last:
             delta = datetime.utcnow() - (last.date or datetime.utcnow())
             if delta.total_seconds() < 30:
                 return jsonify({"error": "Please wait before submitting another report."}), 429
 
-        # Accept JSON and multipart
+        photo_url = ''
         if request.content_type and request.content_type.startswith('multipart/form-data'):
             form = request.form
             reporter     = form.get('reporter', '')
@@ -250,16 +261,13 @@ def submit_report():
             severity     = form.get('severity', 'Low')
             lat          = float(form.get('lat')) if form.get('lat') else None
             lng          = float(form.get('lng')) if form.get('lng') else None
-
-            photo_url = ''
             if 'photo' in request.files and request.files['photo'].filename:
                 f = request.files['photo']
                 fname = secure_filename(f"{uuid.uuid4().hex}_{f.filename}")
                 path = os.path.join(app.config['UPLOAD_FOLDER'], fname)
                 f.save(path)
                 photo_url = f"/static/uploads/{fname}"
-
-        else:  # JSON
+        else:
             data        = request.get_json(force=True)
             reporter     = data.get('reporter', '')
             barangay     = data.get('barangay', '')
@@ -279,7 +287,7 @@ def submit_report():
             lat=lat, lng=lng,
             photo=photo_url,
             status="Pending",
-            action_status="Not Resolved",  # default for dashboard action
+            action_status="Not Resolved",
             user_id=user_id
         )
         db.session.add(new_report)
@@ -290,12 +298,6 @@ def submit_report():
         print("submit_report error:", e)
         return jsonify({"error": str(e)}), 422
 
-
-    except Exception as e:
-        print("⚠️ submit_report error:", e)
-        return jsonify({"error": str(e)}), 422
-
-
 # -----------------------------
 # API – Dashboard Data
 # -----------------------------
@@ -304,22 +306,21 @@ def get_reports():
     reports = Report.query.order_by(Report.date.desc()).all()
     data = []
     for r in reports:
-      data.append({
-        "id": r.id,
-        "date": r.date.strftime("%Y-%m-%d %H:%M") if r.date else "",
-        "reporter": r.reporter or "Unknown",
-        "barangay": r.barangay or "",
-        "municipality": r.municipality or "",
-        "province": r.province or "",
-        "severity": r.severity or "Low",
-        "status": r.status or "Pending",
-        "action_status": r.action_status or "Not Resolved",  # <-- include
-        "photo": r.photo or "",
-        "lat": r.lat,
-        "lng": r.lng
-      })
+        data.append({
+            "id": r.id,
+            "date": r.date.strftime("%Y-%m-%d %H:%M") if r.date else "",
+            "reporter": r.reporter or "Unknown",
+            "barangay": r.barangay or "",
+            "municipality": r.municipality or "",
+            "province": r.province or "",
+            "severity": r.severity or "Low",
+            "status": r.status or "Pending",
+            "action_status": r.action_status or "Not Resolved",
+            "photo": r.photo or "",
+            "lat": r.lat,
+            "lng": r.lng
+        })
     return jsonify(data)
-
 
 @app.route('/api/barangays')
 def api_barangays():
@@ -387,10 +388,9 @@ def update_report_action_status(report_id):
     db.session.commit()
     return jsonify({"message": "Action updated"}), 200
 
-
 # -----------------------------
 # Run
 # -----------------------------
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
-
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
