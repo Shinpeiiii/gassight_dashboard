@@ -42,22 +42,37 @@ self.addEventListener("fetch", (event) => {
   // Ignore Chrome extension / dev requests
   if (url.origin.includes("chrome-extension")) return;
 
-  // 🚫 Don’t cache API calls
-  if (url.pathname.startsWith("/api/")) {
+  // ✅ Cache the /api/reports endpoint (for offline dashboard data)
+  if (url.pathname.startsWith("/api/reports")) {
     event.respondWith(
-      fetch(request).catch(() => caches.match(OFFLINE_FALLBACK))
+      fetch(request)
+        .then((response) => {
+          // store latest reports in cache
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          return response;
+        })
+        .catch(() => {
+          // when offline, use cached data
+          return caches.match(request).then((res) => res || caches.match(OFFLINE_FALLBACK));
+        })
     );
     return;
   }
 
-  // ✅ Cache-first for static and dashboard routes
+  // 🚫 Don’t cache report submissions or status updates
+  if (url.pathname.startsWith("/api/")) {
+    event.respondWith(fetch(request).catch(() => caches.match(OFFLINE_FALLBACK)));
+    return;
+  }
+
+  // ✅ Cache-first for static files and dashboard pages
   event.respondWith(
     caches.match(request).then((cached) => {
       return (
         cached ||
         fetch(request)
           .then((response) => {
-            // only cache GET requests (avoid POST / PUT)
             if (request.method === "GET" && response.status === 200) {
               const clone = response.clone();
               caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
@@ -73,3 +88,4 @@ self.addEventListener("fetch", (event) => {
     })
   );
 });
+
