@@ -48,7 +48,6 @@ async function loadReports() {
   renderMap();
   updateCharts();
 
-  // alert badge
   const highs = allReports.filter((r) => r.severity === 'High');
   showHighAlert(highs);
 }
@@ -85,11 +84,10 @@ function renderTable(reports) {
     // Status pill
     const statusHtml = (() => {
       const s = r.status || 'Pending';
-      const map = { Pending: 'secondary', Approved: 'success', Rejected: 'danger' };
+      const map = { Pending: 'secondary', Approved: 'success', Accepted: 'success', Rejected: 'danger' };
       return `<span class="badge rounded-pill text-bg-${map[s] || 'secondary'}">${s}</span>`;
     })();
 
-    // Action (resolved/not resolved) pill + change button
     const actionState = r.action_status || 'Not Resolved';
     const actionColor = actionState === 'Resolved' ? 'primary' : 'secondary';
 
@@ -115,7 +113,7 @@ function renderTable(reports) {
         }
       </td>
 
-      <!-- Status (PERMANENT: approve/reject) -->
+      <!-- Status -->
       <td>
         ${statusHtml}
         <div class="mt-2 d-flex gap-2">
@@ -124,7 +122,7 @@ function renderTable(reports) {
         </div>
       </td>
 
-      <!-- Action (NOT permanent: toggle, change anytime) -->
+      <!-- Action -->
       <td>
         <span id="action-pill-${r.id}" class="badge rounded-pill text-bg-${actionColor}">${actionState}</span>
         <button class="btn btn-sm btn-outline-secondary ms-2" onclick="toggleAction(${r.id})">Change</button>
@@ -152,7 +150,6 @@ async function updateStatus(id, newStatus) {
 }
 
 async function toggleAction(id) {
-  // read current
   const pill = document.getElementById(`action-pill-${id}`);
   if (!pill) return;
   const current = pill.textContent.trim();
@@ -183,40 +180,41 @@ function initMap() {
 function renderMap() {
   if (!leafletMap) return;
 
-  // Only use approved reports
-  const approvedReports = allReports.filter((r) => r.status === "Approved" && r.lat && r.lng);
+  // ✅ Only accepted/approved reports
+  const acceptedReports = allReports.filter(
+    (r) => (r.status === "Accepted" || r.status === "Approved") && r.lat && r.lng
+  );
 
-  // Prepare weighted heat points
-  const pts = approvedReports.map((r) => {
-    let weight;
+  // ✅ Prepare severity-weighted heat points
+  const heatPoints = acceptedReports.map((r) => {
+    let weight = 0.3;
+    if (r.severity === "Moderate") weight = 0.6;
     if (r.severity === "High") weight = 1.0;
-    else if (r.severity === "Moderate") weight = 0.6;
-    else weight = 0.3;
     return [Number(r.lat), Number(r.lng), weight];
   });
 
-  // Remove old layer
+  // Remove old heat layer
   if (heatLayer) leafletMap.removeLayer(heatLayer);
 
-  // ✅ Custom gradient by severity
-  if (pts.length) {
-    heatLayer = L.heatLayer(pts, {
-      radius: 25,
-      blur: 15,
+  // ✅ Severity-based color gradient
+  if (heatPoints.length) {
+    heatLayer = L.heatLayer(heatPoints, {
+      radius: 30,
+      blur: 20,
+      maxZoom: 17,
       gradient: {
-        0.3: "green",   // Low
-        0.6: "orange",  // Moderate
-        1.0: "red"      // High
+        0.2: "limegreen",
+        0.6: "orange",
+        1.0: "red"
       },
     }).addTo(leafletMap);
   }
 
-  // ✅ Add markers (optional)
-  approvedReports.forEach((r) => {
-    let color;
+  // ✅ Add severity markers
+  acceptedReports.forEach((r) => {
+    let color = "green";
+    if (r.severity === "Moderate") color = "orange";
     if (r.severity === "High") color = "red";
-    else if (r.severity === "Moderate") color = "orange";
-    else color = "green";
 
     const marker = L.circleMarker([r.lat, r.lng], {
       radius: 6,
@@ -229,11 +227,10 @@ function renderMap() {
       <strong>${r.barangay || "Unknown"}</strong><br>
       Severity: <b>${r.severity}</b><br>
       Status: ${r.status}<br>
-      <small>${r.date}</small>
+      <small>${r.date || ""}</small>
     `);
   });
 }
-
 
 function focusOnMap(lat, lng) {
   if (!leafletMap || isNaN(lat) || isNaN(lng)) return;
@@ -338,16 +335,17 @@ function showHighReports(highReports) {
 window.addEventListener('load', () => {
   initMap();
   loadReports();
-  setInterval(loadReports, 15000);
+  setInterval(loadReports, 15000); // Auto-refresh every 15s
 });
 
-// Service worker registration
+/* ---------------- Service Worker ---------------- */
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/service-worker.js')
     .then(() => console.log('✅ Service Worker registered'))
     .catch(err => console.error('SW registration failed:', err));
 }
 
+/* ---------------- User Location ---------------- */
 if (navigator.geolocation) {
   navigator.geolocation.getCurrentPosition((pos) => {
     const { latitude, longitude } = pos.coords;
@@ -360,4 +358,3 @@ if (navigator.geolocation) {
     userMarker.bindPopup("📍 You are here").openPopup();
   });
 }
-
