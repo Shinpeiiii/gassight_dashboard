@@ -183,25 +183,57 @@ function initMap() {
 function renderMap() {
   if (!leafletMap) return;
 
-  // ❗ Heatmap only from APPROVED reports
-  const pts = allReports
-    .filter((r) => r.lat && r.lng && r.status === 'Approved')
-    .map((r) => [
-      Number(r.lat),
-      Number(r.lng),
-      r.severity === 'High' ? 1 : r.severity === 'Moderate' ? 0.6 : 0.3,
-    ]);
+  // Only use approved reports
+  const approvedReports = allReports.filter((r) => r.status === "Approved" && r.lat && r.lng);
 
+  // Prepare weighted heat points
+  const pts = approvedReports.map((r) => {
+    let weight;
+    if (r.severity === "High") weight = 1.0;
+    else if (r.severity === "Moderate") weight = 0.6;
+    else weight = 0.3;
+    return [Number(r.lat), Number(r.lng), weight];
+  });
+
+  // Remove old layer
   if (heatLayer) leafletMap.removeLayer(heatLayer);
 
+  // ✅ Custom gradient by severity
   if (pts.length) {
     heatLayer = L.heatLayer(pts, {
       radius: 25,
       blur: 15,
-      gradient: { 0.3: 'orange', 0.6: 'red', 1.0: 'darkred' },
+      gradient: {
+        0.3: "green",   // Low
+        0.6: "orange",  // Moderate
+        1.0: "red"      // High
+      },
     }).addTo(leafletMap);
   }
+
+  // ✅ Add markers (optional)
+  approvedReports.forEach((r) => {
+    let color;
+    if (r.severity === "High") color = "red";
+    else if (r.severity === "Moderate") color = "orange";
+    else color = "green";
+
+    const marker = L.circleMarker([r.lat, r.lng], {
+      radius: 6,
+      color: color,
+      fillColor: color,
+      fillOpacity: 0.7,
+    }).addTo(leafletMap);
+
+    marker.bindPopup(`
+      <strong>${r.barangay || "Unknown"}</strong><br>
+      Severity: <b>${r.severity}</b><br>
+      Status: ${r.status}<br>
+      <small>${r.date}</small>
+    `);
+  });
 }
+
 
 function focusOnMap(lat, lng) {
   if (!leafletMap || isNaN(lat) || isNaN(lng)) return;
@@ -315,3 +347,17 @@ if ('serviceWorker' in navigator) {
     .then(() => console.log('✅ Service Worker registered'))
     .catch(err => console.error('SW registration failed:', err));
 }
+
+if (navigator.geolocation) {
+  navigator.geolocation.getCurrentPosition((pos) => {
+    const { latitude, longitude } = pos.coords;
+    const userMarker = L.circleMarker([latitude, longitude], {
+      radius: 8,
+      color: "blue",
+      fillColor: "blue",
+      fillOpacity: 0.8,
+    }).addTo(leafletMap);
+    userMarker.bindPopup("📍 You are here").openPopup();
+  });
+}
+
