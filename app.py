@@ -32,8 +32,12 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'super-secret-key')
 
 # Session cookie hints when behind Render HTTPS
-app.config['SESSION_COOKIE_SECURE'] = False
-app.config['SESSION_COOKIE_SAMESITE'] = "Lax"
+# ✅ Fix login/session issues across devices and HTTPS
+app.config['SESSION_COOKIE_SECURE'] = True     # important for Render HTTPS
+app.config['SESSION_COOKIE_SAMESITE'] = "None" # allows cross-origin cookie sharing
+app.config['REMEMBER_COOKIE_SECURE'] = True
+app.config['REMEMBER_COOKIE_SAMESITE'] = "None"
+
 
 jwt = JWTManager(app)
 db = SQLAlchemy(app)
