@@ -259,7 +259,6 @@ from flask_jwt_extended import (
     get_jwt_identity
 )
 
-
 @app.route('/api/refresh', methods=['POST'])
 @jwt_required(refresh=True)
 def refresh_token():
@@ -373,7 +372,7 @@ def submit_report():
 @app.route('/api/reports')
 def get_reports():
     # ✅ Only include reports that the admin approved
-    reports = Report.query.filter_by(status='Approved').order_by(Report.date.desc()).all()
+    reports = Report.query.filter_by(status='accepted').all()
     
     data = []
     for r in reports:
