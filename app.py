@@ -304,7 +304,9 @@ def submit_report():
 # -----------------------------
 @app.route('/api/reports')
 def get_reports():
-    reports = Report.query.order_by(Report.date.desc()).all()
+    # ✅ Only include reports that the admin approved
+    reports = Report.query.filter_by(status='Approved').order_by(Report.date.desc()).all()
+    
     data = []
     for r in reports:
         data.append({
@@ -322,6 +324,7 @@ def get_reports():
             "lng": r.lng
         })
     return jsonify(data)
+
 
 @app.route('/api/barangays')
 def api_barangays():
