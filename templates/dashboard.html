@@ -230,14 +230,11 @@ window.addEventListener('load', () => {
 
 <script>
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/static/service-worker.js')
-      .then(() => console.log('✅ Service Worker registered for dashboard'))
-      .catch(err => console.error('SW registration failed:', err));
-  });
+  navigator.serviceWorker.register('/service-worker.js')
+    .then(() => console.log('✅ Service Worker registered'))
+    .catch(err => console.error('SW registration failed:', err));
 }
 </script>
-
 
 
 
