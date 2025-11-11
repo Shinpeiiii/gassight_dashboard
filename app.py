@@ -252,16 +252,23 @@ def api_login():
         "refresh_token": refresh_token
     }), 200
 
-from flask_jwt_extended import jwt_refresh_token_required, create_refresh_token, set_access_cookies, set_refresh_cookies, unset_jwt_cookies, get_jwt
+from flask_jwt_extended import (
+    create_access_token,
+    create_refresh_token,
+    jwt_required,
+    get_jwt_identity
+)
+
 
 @app.route('/api/refresh', methods=['POST'])
 @jwt_required(refresh=True)
 def refresh_token():
     current_user = get_jwt_identity()
-    new_token = create_access_token(identity=current_user)
+    new_access_token = create_access_token(identity=current_user)
     return jsonify({
-        "access_token": new_token
+        "access_token": new_access_token
     }), 200
+
 
 
 # -----------------------------
