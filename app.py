@@ -245,14 +245,27 @@ def submit_report():
     try:
         user_id = int(get_jwt_identity())
 
-        # simple cooldown (30s)
+        # ✅ Improved cooldown logic (safer, shorter)
         last = Report.query.filter_by(user_id=user_id).order_by(Report.date.desc()).first()
-        if last:
-            delta = datetime.utcnow() - (last.date or datetime.utcnow())
-            if delta.total_seconds() < 30:
-                return jsonify({"error": "Please wait before submitting another report."}), 429
+        if last and last.date:
+            now = datetime.utcnow()
+            delta = now - last.date
+            if delta.total_seconds() < 10:  # allow new report after 10 seconds
+                wait = int(10 - delta.total_seconds())
+                return jsonify({
+                    "error": f"Please wait {wait} seconds before submitting another report."
+                }), 429
 
+        # Detect duplicate same-location report in short interval
+        lat = None
+        lng = None
+        reporter = ''
+        barangay = ''
+        municipality = ''
+        province = ''
+        severity = 'Low'
         photo_url = ''
+
         if request.content_type and request.content_type.startswith('multipart/form-data'):
             form = request.form
             reporter     = form.get('reporter', '')
@@ -262,14 +275,17 @@ def submit_report():
             severity     = form.get('severity', 'Low')
             lat          = float(form.get('lat')) if form.get('lat') else None
             lng          = float(form.get('lng')) if form.get('lng') else None
+
+            # ✅ Save photo safely
             if 'photo' in request.files and request.files['photo'].filename:
                 f = request.files['photo']
                 fname = secure_filename(f"{uuid.uuid4().hex}_{f.filename}")
                 path = os.path.join(app.config['UPLOAD_FOLDER'], fname)
                 f.save(path)
                 photo_url = f"/static/uploads/{fname}"
+
         else:
-            data        = request.get_json(force=True)
+            data = request.get_json(force=True)
             reporter     = data.get('reporter', '')
             barangay     = data.get('barangay', '')
             municipality = data.get('municipality', '')
@@ -279,13 +295,23 @@ def submit_report():
             lng          = float(data.get('lng')) if data.get('lng') else None
             photo_url    = data.get('photo_url', '')
 
+        # ✅ Optional duplicate check (same location within 15 seconds)
+        if lat and lng:
+            recent_same = Report.query.filter_by(user_id=user_id, lat=lat, lng=lng).order_by(Report.date.desc()).first()
+            if recent_same and (datetime.utcnow() - recent_same.date).total_seconds() < 15:
+                return jsonify({
+                    "error": "Duplicate report detected. Please wait a few seconds before resubmitting."
+                }), 429
+
+        # ✅ Save new report
         new_report = Report(
             reporter=reporter,
             barangay=barangay,
             municipality=municipality,
             province=province,
             severity=severity,
-            lat=lat, lng=lng,
+            lat=lat,
+            lng=lng,
             photo=photo_url,
             status="Pending",
             action_status="Not Resolved",
@@ -293,11 +319,18 @@ def submit_report():
         )
         db.session.add(new_report)
         db.session.commit()
-        return jsonify({"message": "Report submitted", "report_id": new_report.id}), 201
+
+        return jsonify({
+            "message": "Report submitted successfully!",
+            "report_id": new_report.id
+        }), 201
 
     except Exception as e:
         print("submit_report error:", e)
-        return jsonify({"error": str(e)}), 422
+        return jsonify({
+            "error": "Failed to submit report.",
+            "details": str(e)
+        }), 500
 
 # -----------------------------
 # API – Dashboard Data
