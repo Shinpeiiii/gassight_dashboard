@@ -38,6 +38,12 @@ app.config['SESSION_COOKIE_SAMESITE'] = "None" # allows cross-origin cookie shar
 app.config['REMEMBER_COOKIE_SECURE'] = True
 app.config['REMEMBER_COOKIE_SAMESITE'] = "None"
 
+# JWT token lifetime settings
+from datetime import timedelta
+
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=2)   # User stays logged in for 2 hours
+app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=7)   # Refresh token valid for 7 days
+
 
 jwt = JWTManager(app)
 db = SQLAlchemy(app)
@@ -230,15 +236,33 @@ def api_login():
     password = data.get('password', '').strip()
     if not username or not password:
         return jsonify({"error": "Missing credentials"}), 400
+
     user = User.query.filter_by(username=username).first()
     if not user or not user.check_password(password):
         return jsonify({"error": "Invalid username or password"}), 401
+
+    # ✅ Create both tokens
     access_token = create_access_token(identity=str(user.id))
+    refresh_token = create_access_token(identity=str(user.id), expires_delta=timedelta(days=7))
+
     return jsonify({
         "message": "Login successful",
         "username": user.username,
-        "token": access_token
+        "access_token": access_token,
+        "refresh_token": refresh_token
     }), 200
+
+from flask_jwt_extended import jwt_refresh_token_required, create_refresh_token, set_access_cookies, set_refresh_cookies, unset_jwt_cookies, get_jwt
+
+@app.route('/api/refresh', methods=['POST'])
+@jwt_required(refresh=True)
+def refresh_token():
+    current_user = get_jwt_identity()
+    new_token = create_access_token(identity=current_user)
+    return jsonify({
+        "access_token": new_token
+    }), 200
+
 
 # -----------------------------
 # API – Submit report
