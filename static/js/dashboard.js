@@ -180,23 +180,19 @@ function initMap() {
 function renderMap() {
   if (!leafletMap) return;
 
-  // ✅ Only accepted/approved reports
-  const acceptedReports = allReports.filter(
-    (r) => (r.status === "Accepted" || r.status === "Approved") && r.lat && r.lng
-  );
+  // ✅ Show all reports (Approved + Pending + Accepted + Rejected)
+  const visibleReports = allReports.filter((r) => r.lat && r.lng);
 
   // ✅ Prepare severity-weighted heat points
-  const heatPoints = acceptedReports.map((r) => {
+  const heatPoints = visibleReports.map((r) => {
     let weight = 0.3;
     if (r.severity === "Moderate") weight = 0.6;
     if (r.severity === "High") weight = 1.0;
     return [Number(r.lat), Number(r.lng), weight];
   });
 
-  // Remove old heat layer
   if (heatLayer) leafletMap.removeLayer(heatLayer);
 
-  // ✅ Severity-based color gradient
   if (heatPoints.length) {
     heatLayer = L.heatLayer(heatPoints, {
       radius: 30,
@@ -210,11 +206,12 @@ function renderMap() {
     }).addTo(leafletMap);
   }
 
-  // ✅ Add severity markers
-  acceptedReports.forEach((r) => {
+  // ✅ Add severity + status markers
+  visibleReports.forEach((r) => {
     let color = "green";
     if (r.severity === "Moderate") color = "orange";
     if (r.severity === "High") color = "red";
+    if (r.status === "Pending") color = "gray";
 
     const marker = L.circleMarker([r.lat, r.lng], {
       radius: 6,
