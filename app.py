@@ -9,12 +9,13 @@ from flask_login import (
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from datetime import datetime, timedelta
 from functools import wraps
-from datetime import datetime
 import os, uuid
 
 from flask_jwt_extended import (
-    JWTManager, create_access_token, jwt_required, get_jwt_identity
+    JWTManager, create_access_token, create_refresh_token,
+    jwt_required, get_jwt_identity
 )
 from flask_cors import CORS
 
@@ -31,19 +32,15 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:/
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'super-secret-key')
 
-# Session cookie hints when behind Render HTTPS
-# ✅ Fix login/session issues across devices and HTTPS
-app.config['SESSION_COOKIE_SECURE'] = True     # important for Render HTTPS
-app.config['SESSION_COOKIE_SAMESITE'] = "None" # allows cross-origin cookie sharing
+# Cookies (Render runs behind HTTPS)
+app.config['SESSION_COOKIE_SECURE'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = "None"
 app.config['REMEMBER_COOKIE_SECURE'] = True
 app.config['REMEMBER_COOKIE_SAMESITE'] = "None"
 
-# JWT token lifetime settings
-from datetime import timedelta
-
-app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=2)   # User stays logged in for 2 hours
-app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=7)   # Refresh token valid for 7 days
-
+# JWT lifetimes
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=2)
+app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=7)
 
 jwt = JWTManager(app)
 db = SQLAlchemy(app)
@@ -78,9 +75,7 @@ class Report(db.Model):
     municipality = db.Column(db.String(120))
     province = db.Column(db.String(120))
     severity = db.Column(db.String(50))
-    # Permanent admin decision (Approved / Rejected / Pending)
-    status = db.Column(db.String(50), default="Pending")
-    # Dashboard “action” (Resolved / Not Resolved) – editable anytime
+    status = db.Column(db.String(50), default="Pending")          # Pending / Approved / Rejected
     action_status = db.Column(db.String(50), default="Not Resolved")
     photo = db.Column(db.String(255))
     lat = db.Column(db.Float)
@@ -93,27 +88,23 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 
-# Create tables and make sure action_status exists even on old DBs
+# Create tables and ensure action_status exists for legacy DBs
 with app.app_context():
     db.create_all()
     try:
-        # Add column if missing (SQLite only)
         insp = db.engine.execute("PRAGMA table_info(report)").fetchall()
         cols = {row[1] for row in insp}
         if 'action_status' not in cols:
             db.engine.execute("ALTER TABLE report ADD COLUMN action_status VARCHAR(50) DEFAULT 'Not Resolved'")
-    except Exception as _e:
-        # If it fails (e.g., non-SQLite), we simply skip; your DB likely already has it.
+    except Exception:
         pass
 
 # -----------------------------
-# Static files & PWA helper
+# Static & PWA helpers
 # -----------------------------
 @app.route('/service-worker.js')
 def service_worker():
     return send_from_directory('static', 'service-worker.js')
-
-
 
 @app.route('/static/<path:filename>')
 def static_files(filename):
@@ -231,7 +222,7 @@ def api_signup():
 
 @app.route('/api/login', methods=['POST'])
 def api_login():
-    data = request.get_json()
+    data = request.get_json(force=True)
     username = data.get('username', '').strip()
     password = data.get('password', '').strip()
     if not username or not password:
@@ -241,9 +232,8 @@ def api_login():
     if not user or not user.check_password(password):
         return jsonify({"error": "Invalid username or password"}), 401
 
-    # ✅ Create both tokens
     access_token = create_access_token(identity=str(user.id))
-    refresh_token = create_access_token(identity=str(user.id), expires_delta=timedelta(days=7))
+    refresh_token = create_refresh_token(identity=str(user.id))
 
     return jsonify({
         "message": "Login successful",
@@ -252,23 +242,18 @@ def api_login():
         "refresh_token": refresh_token
     }), 200
 
-from flask_jwt_extended import (
-    create_access_token,
-    create_refresh_token,
-    jwt_required,
-    get_jwt_identity
-)
-
 @app.route('/api/refresh', methods=['POST'])
 @jwt_required(refresh=True)
 def refresh_token():
-    current_user = get_jwt_identity()
-    new_access_token = create_access_token(identity=current_user)
-    return jsonify({
-        "access_token": new_access_token
-    }), 200
+    current_user_id = get_jwt_identity()
+    new_access_token = create_access_token(identity=current_user_id)
+    return jsonify({"access_token": new_access_token}), 200
 
-
+@app.route('/api/check_token', methods=['GET'])
+@jwt_required()
+def check_token():
+    # If we got here, token is valid
+    return jsonify({"ok": True}), 200
 
 # -----------------------------
 # API – Submit report
@@ -279,24 +264,17 @@ def submit_report():
     try:
         user_id = int(get_jwt_identity())
 
-        # ✅ Improved cooldown logic (safer, shorter)
+        # Cooldown 10s per user
         last = Report.query.filter_by(user_id=user_id).order_by(Report.date.desc()).first()
         if last and last.date:
-            now = datetime.utcnow()
-            delta = now - last.date
-            if delta.total_seconds() < 10:  # allow new report after 10 seconds
-                wait = int(10 - delta.total_seconds())
-                return jsonify({
-                    "error": f"Please wait {wait} seconds before submitting another report."
-                }), 429
+            delta = (datetime.utcnow() - last.date).total_seconds()
+            if delta < 10:
+                wait = int(10 - delta)
+                return jsonify({"error": f"Please wait {wait} seconds before submitting another report."}), 429
 
-        # Detect duplicate same-location report in short interval
-        lat = None
-        lng = None
-        reporter = ''
-        barangay = ''
-        municipality = ''
-        province = ''
+        # Parse payload
+        lat = lng = None
+        reporter = barangay = municipality = province = ''
         severity = 'Low'
         photo_url = ''
 
@@ -310,14 +288,11 @@ def submit_report():
             lat          = float(form.get('lat')) if form.get('lat') else None
             lng          = float(form.get('lng')) if form.get('lng') else None
 
-            # ✅ Save photo safely
             if 'photo' in request.files and request.files['photo'].filename:
                 f = request.files['photo']
                 fname = secure_filename(f"{uuid.uuid4().hex}_{f.filename}")
-                path = os.path.join(app.config['UPLOAD_FOLDER'], fname)
-                f.save(path)
+                f.save(os.path.join(app.config['UPLOAD_FOLDER'], fname))
                 photo_url = f"/static/uploads/{fname}"
-
         else:
             data = request.get_json(force=True)
             reporter     = data.get('reporter', '')
@@ -329,68 +304,90 @@ def submit_report():
             lng          = float(data.get('lng')) if data.get('lng') else None
             photo_url    = data.get('photo_url', '')
 
-        # ✅ Optional duplicate check (same location within 15 seconds)
+        # Duplicate location within 15s
         if lat and lng:
-            recent_same = Report.query.filter_by(user_id=user_id, lat=lat, lng=lng).order_by(Report.date.desc()).first()
+            recent_same = Report.query.filter_by(user_id=user_id, lat=lat, lng=lng)\
+                .order_by(Report.date.desc()).first()
             if recent_same and (datetime.utcnow() - recent_same.date).total_seconds() < 15:
-                return jsonify({
-                    "error": "Duplicate report detected. Please wait a few seconds before resubmitting."
-                }), 429
+                return jsonify({"error": "Duplicate report detected. Please wait a few seconds before resubmitting."}), 429
 
-        # ✅ Save new report
         new_report = Report(
             reporter=reporter,
             barangay=barangay,
             municipality=municipality,
             province=province,
             severity=severity,
-            lat=lat,
-            lng=lng,
+            lat=lat, lng=lng,
             photo=photo_url,
             status="Pending",
             action_status="Not Resolved",
-            user_id=user_id
+            user_id=user_id,
+            date=datetime.utcnow()
         )
         db.session.add(new_report)
         db.session.commit()
 
-        return jsonify({
-            "message": "Report submitted successfully!",
-            "report_id": new_report.id
-        }), 201
+        return jsonify({"message": "Report submitted successfully!", "report_id": new_report.id}), 201
 
     except Exception as e:
         print("submit_report error:", e)
-        return jsonify({
-            "error": "Failed to submit report.",
-            "details": str(e)
-        }), 500
+        return jsonify({"error": "Failed to submit report.", "details": str(e)}), 500
 
 # -----------------------------
 # API – Dashboard Data
 # -----------------------------
 @app.route('/api/reports')
 def get_reports():
-    # ✅ Only include reports that the admin approved
-    reports = Report.query.filter_by(status='accepted').all()
-    
-    data = []
-    for r in reports:
-        data.append({
-            "id": r.id,
-            "date": r.date.strftime("%Y-%m-%d %H:%M") if r.date else "",
-            "reporter": r.reporter or "Unknown",
-            "barangay": r.barangay or "",
-            "municipality": r.municipality or "",
-            "province": r.province or "",
-            "severity": r.severity or "Low",
-            "status": r.status or "Pending",
-            "action_status": r.action_status or "Not Resolved",
-            "photo": r.photo or "",
-            "lat": r.lat,
-            "lng": r.lng
-        })
-    return jsonify(data)
+    """
+    Return ALL reports for the dashboard.
+    Optional filters via query string:
+      - barangay=All|<name>
+      - severity=All|Low|Moderate|High|Critical
+      - start_date=YYYY-MM-DD
+      - end_date=YYYY-MM-DD
+    """
+    try:
+        barangay = request.args.get('barangay')
+        severity = request.args.get('severity')
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+
+        q = Report.query
+
+        if barangay and barangay != "All":
+            q = q.filter(Report.barangay == barangay)
+        if severity and severity != "All":
+            q = q.filter(Report.severity == severity)
+        if start_date and end_date:
+            try:
+                s = datetime.strptime(start_date, "%Y-%m-%d")
+                e = datetime.strptime(end_date, "%Y-%m-%d")
+                q = q.filter(Report.date >= s, Report.date <= e)
+            except Exception:
+                pass
+
+        reports = q.order_by(Report.date.desc()).all()
+
+        data = []
+        for r in reports:
+            data.append({
+                "id": r.id,
+                "date": r.date.strftime("%Y-%m-%d %H:%M") if r.date else "",
+                "reporter": r.reporter or "Unknown",
+                "barangay": r.barangay or "",
+                "municipality": r.municipality or "",
+                "province": r.province or "",
+                "severity": r.severity or "Low",
+                "status": r.status or "Pending",
+                "action_status": r.action_status or "Not Resolved",
+                "photo": r.photo or "",
+                "lat": r.lat,
+                "lng": r.lng
+            })
+        return jsonify(data), 200
+    except Exception as e:
+        print("get_reports error:", e)
+        return jsonify({"error": "Failed to fetch reports", "details": str(e)}), 500
 
 
 @app.route('/api/barangays')
@@ -400,7 +397,7 @@ def api_barangays():
 
 @app.route('/api/severity-distribution')
 def api_severity_distribution():
-    severities = ["Low", "Moderate", "High"]
+    severities = ["Low", "Moderate", "High", "Critical"]
     data = {s: Report.query.filter_by(severity=s).count() for s in severities}
     return jsonify(data)
 
@@ -425,7 +422,7 @@ def api_trend():
 @app.route('/api/kpis')
 def get_kpis():
     total_sightings = Report.query.count()
-    active_hotspots = Report.query.filter_by(severity="High").count()
+    active_hotspots = Report.query.filter(Report.severity.in_(["High", "Critical"])).count()
     active_reporters = len(set(r.reporter for r in Report.query.all() if r.reporter))
     avg_response_time = 18
     return jsonify({
@@ -441,8 +438,14 @@ def update_report_status(report_id):
     if not r:
         return jsonify({"error": "Report not found"}), 404
     new_status = (request.get_json() or {}).get("status")
+
+    # Normalize legacy/typo statuses
+    if new_status == "Accepted":
+        new_status = "Approved"
+
     if new_status not in {"Pending", "Approved", "Rejected"}:
         return jsonify({"error": "Invalid status"}), 400
+
     r.status = new_status
     db.session.commit()
     return jsonify({"message": "Status updated"}), 200
