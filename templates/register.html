@@ -72,7 +72,6 @@
 
     <h4 class="mb-4 fw-bold">Create Account</h4>
 
-    <!-- FIXED: added id="registerForm" -->
     <form id="registerForm">
       <input type="text" class="form-control" id="username" placeholder="Choose a username" required />
       <input type="password" class="form-control" id="password" placeholder="Enter a secure password" required />
@@ -97,11 +96,15 @@
     </p>
   </div>
 
+  <!-- FIXED FOOTER -->
   <div class="footer">
-    GASsight © {{ datetime.utcnow().year }}
+    GASsight © <span id="year"></span>
   </div>
+  <script>
+    document.getElementById("year").textContent = new Date().getFullYear();
+  </script>
 
-  <!-- FIXED: wrap JS inside script tag -->
+  <!-- Register Form JS -->
   <script>
     document.getElementById("registerForm").addEventListener("submit", async (e) => {
       e.preventDefault();
