@@ -60,11 +60,18 @@ class User(db.Model, UserMixin):
     password_hash = db.Column(db.String(256), nullable=False)
     is_admin = db.Column(db.Boolean, default=False)
 
+    # 👇 Basic info
+    full_name = db.Column(db.String(200))
+    contact_number = db.Column(db.String(50))
+    address = db.Column(db.String(255))
+    email = db.Column(db.String(120))
+
     def set_password(self, pw):
         self.password_hash = generate_password_hash(pw)
 
     def check_password(self, pw):
         return check_password_hash(self.password_hash, pw)
+
 
 
 class Report(db.Model):
@@ -92,12 +99,14 @@ def load_user(user_id):
 with app.app_context():
     db.create_all()
     try:
-        insp = db.engine.execute("PRAGMA table_info(report)").fetchall()
+        insp = db.engine.execute("PRAGMA table_info(user)").fetchall()
         cols = {row[1] for row in insp}
-        if 'action_status' not in cols:
-            db.engine.execute("ALTER TABLE report ADD COLUMN action_status VARCHAR(50) DEFAULT 'Not Resolved'")
+        for col in ["full_name", "contact_number", "address", "email"]:
+            if col not in cols:
+                db.engine.execute(f"ALTER TABLE user ADD COLUMN {col} VARCHAR(255)")
     except Exception:
         pass
+
 
 # -----------------------------
 # Static & PWA helpers
@@ -163,24 +172,40 @@ def login():
 def register():
     if current_user.is_authenticated:
         return redirect(url_for('dashboard' if current_user.is_admin else 'no_access'))
+
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
+        full_name = request.form.get('full_name', '').strip()
+        contact = request.form.get('contact_number', '').strip()
+        address = request.form.get('address', '').strip()
+        email = request.form.get('email', '').strip()
         admin_code = request.form.get('admin_code', '').strip()
+
         if not username or not password:
             flash("Username and password required.", "danger")
             return render_template('register.html', datetime=datetime)
+
         if User.query.filter_by(username=username).first():
             flash("Username already taken.", "warning")
             return render_template('register.html', datetime=datetime)
-        user = User(username=username)
+
+        user = User(
+            username=username,
+            full_name=full_name,
+            contact_number=contact,
+            address=address,
+            email=email,
+            is_admin=(admin_code == ADMIN_CODE)
+        )
         user.set_password(password)
-        user.is_admin = (admin_code == ADMIN_CODE)
         db.session.add(user)
         db.session.commit()
+
         login_user(user)
         flash("🎉 Account created successfully!", "success")
         return redirect(url_for('dashboard' if user.is_admin else 'no_access'))
+
     return render_template('register.html', datetime=datetime)
 
 @app.route('/logout')
@@ -207,18 +232,31 @@ def api_signup():
         data = request.get_json(force=True)
         username = data.get('username', '').strip()
         password = data.get('password', '').strip()
+        full_name = data.get('full_name', '').strip()
+        contact = data.get('contact_number', '').strip()
+        address = data.get('address', '').strip()
+        email = data.get('email', '').strip()
+
         if not username or not password:
             return jsonify({"error": "Username and password required"}), 400
         if User.query.filter_by(username=username).first():
             return jsonify({"error": "Username already exists"}), 409
-        user = User(username=username)
+
+        user = User(
+            username=username,
+            full_name=full_name,
+            contact_number=contact,
+            address=address,
+            email=email,
+            is_admin=False
+        )
         user.set_password(password)
-        user.is_admin = False
         db.session.add(user)
         db.session.commit()
         return jsonify({"message": "Account created successfully!"}), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @app.route('/api/login', methods=['POST'])
 def api_login():
