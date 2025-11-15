@@ -1,3 +1,5 @@
+# app.py — GASsight (Render-ready)
+
 from flask import (
     Flask, render_template, jsonify, send_from_directory,
     request, redirect, url_for, flash
@@ -9,6 +11,7 @@ from flask_login import (
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+
 from datetime import datetime, timedelta
 import os, uuid
 
@@ -16,53 +19,58 @@ from flask_jwt_extended import (
     JWTManager, create_access_token, create_refresh_token,
     jwt_required, get_jwt_identity
 )
+
 from flask_cors import CORS
 
 
-# ---------------------------------------------------
-# APP SETUP (Render compatible)
-# ---------------------------------------------------
-app = Flask(__name__, static_folder="static", template_folder="templates")
+# -------------------------------------------------
+# APP INITIALIZATION
+# -------------------------------------------------
+app = Flask(_name_, static_folder='static', template_folder='templates')
 
+# Allow mobile apps
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-key")
-app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "jwt-secret")
+# Security
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key')
+app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'jwt-secret')
 
-# For login_session cookies
-app.config["SESSION_COOKIE_SECURE"] = True
-app.config["SESSION_COOKIE_SAMESITE"] = "None"
-app.config["REMEMBER_COOKIE_SECURE"] = True
-app.config["REMEMBER_COOKIE_SAMESITE"] = "None"
+app.config['SESSION_COOKIE_SECURE'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = "None"
+app.config['REMEMBER_COOKIE_SECURE'] = True
+app.config['REMEMBER_COOKIE_SAMESITE'] = "None"
 
-# JWT Expiration
-app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=2)
-app.config["JWT_REFRESH_TOKEN_EXPIRES"] = timedelta(days=7)
+# Tokens
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=2)
+app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=7)
 
-# Render PostgreSQL fix
+jwt = JWTManager(app)
+db = SQLAlchemy(app)
+login_manager = LoginManager(app)
+login_manager.login_view = 'login'
+
+# Upload folder
+app.config['UPLOAD_FOLDER'] = os.path.join(app.static_folder, "uploads")
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+# Admin code
+ADMIN_CODE = os.environ.get("ADMIN_CODE", "GASSIGHT_ADMIN")
+
+
+# -------------------------------------------------
+# DATABASE (Render + Local Support)
+# -------------------------------------------------
 db_url = os.environ.get("DATABASE_URL")
+
 if db_url and db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = db_url or "sqlite:///gassight.db"
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-
-jwt = JWTManager(app)
-db = SQLAlchemy(app)
-
-login_manager = LoginManager(app)
-login_manager.login_view = "login"
-
-ADMIN_CODE = os.environ.get("ADMIN_CODE", "GASSIGHT_ADMIN")
-
-# Upload folder
-app.config["UPLOAD_FOLDER"] = os.path.join(app.static_folder, "uploads")
-os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
 
-# ---------------------------------------------------
-# DATABASE MODELS
-# ---------------------------------------------------
+# -------------------------------------------------
+# MODELS
+# -------------------------------------------------
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(120), unique=True, nullable=False)
@@ -98,7 +106,7 @@ class Report(db.Model):
     lat = db.Column(db.Float)
     lng = db.Column(db.Float)
 
-    user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
 
 
 @login_manager.user_loader
@@ -106,20 +114,16 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 
-# ---------------------------------------------------
-# CREATE TABLES AUTOMATICALLY (RENDER SAFE)
-# ---------------------------------------------------
-@app.before_first_request
-def create_tables():
-    with app.app_context():
-        db.create_all()
+# Flask 3.x — SAFE TABLE CREATION
+with app.app_context():
+    db.create_all()
 
 
-# ---------------------------------------------------
-# STATIC FILES (SERVICE WORKER)
-# ---------------------------------------------------
+# -------------------------------------------------
+# STATIC (PWA SUPPORT)
+# -------------------------------------------------
 @app.route("/service-worker.js")
-def service_worker():
+def sw():
     return send_from_directory("static", "service-worker.js")
 
 
@@ -128,11 +132,11 @@ def static_files(path):
     return send_from_directory(app.static_folder, path)
 
 
-# ---------------------------------------------------
+# -------------------------------------------------
 # PAGE ROUTES
-# ---------------------------------------------------
+# -------------------------------------------------
 @app.route("/")
-def home():
+def landing():
     if not current_user.is_authenticated:
         return redirect(url_for("login"))
     return redirect(url_for("dashboard" if current_user.is_admin else "no_access"))
@@ -152,10 +156,13 @@ def no_access():
     return render_template("no_access.html")
 
 
+# -------------------------------
+# LOGIN
+# -------------------------------
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for("dashboard" if current_user.is_admin else "no_access"))
+        return redirect(url_for('dashboard' if current_user.is_admin else 'no_access'))
 
     if request.method == "POST":
         username = request.form.get("username").strip()
@@ -165,14 +172,17 @@ def login():
 
         if not user or not user.check_password(password):
             flash("Invalid username or password.", "danger")
-            return render_template("login.html", year=datetime.utcnow().year)
+            return render_template("login.html")
 
         login_user(user)
         return redirect(url_for("dashboard" if user.is_admin else "no_access"))
 
-    return render_template("login.html", year=datetime.utcnow().year)
+    return render_template("login.html")
 
 
+# -------------------------------
+# REGISTER
+# -------------------------------
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
@@ -197,6 +207,7 @@ def register():
             is_admin=(admin_code == ADMIN_CODE)
         )
         user.set_password(password)
+
         db.session.add(user)
         db.session.commit()
 
@@ -212,20 +223,20 @@ def logout():
     return redirect(url_for("login"))
 
 
-# ---------------------------------------------------
-# MOBILE API - REGISTER & LOGIN
-# ---------------------------------------------------
+# -------------------------------------------------
+# API — MOBILE AUTH
+# -------------------------------------------------
 @app.route("/api/register", methods=["POST"])
 def api_register():
     data = request.get_json()
 
     username = data.get("username", "").strip()
     password = data.get("password", "").strip()
-    full_name = data.get("fullName", "").strip()
-    email = data.get("email", "").strip()
-    contact = data.get("contact", "").strip()
-    address = data.get("address", "").strip()
-    admin_code = data.get("adminCode", "").strip()
+    full_name = data.get("fullName", "")
+    email = data.get("email", "")
+    contact = data.get("contact", "")
+    address = data.get("address", "")
+    admin_code = data.get("adminCode", "")
 
     if User.query.filter_by(username=username).first():
         return jsonify({"error": "Username already exists"}), 409
@@ -253,8 +264,8 @@ def api_register():
 def api_login():
     data = request.get_json()
 
-    username = data.get("username", "").strip()
-    password = data.get("password", "").strip()
+    username = data.get("username", "")
+    password = data.get("password", "")
 
     user = User.query.filter_by(username=username).first()
 
@@ -262,15 +273,14 @@ def api_login():
         return jsonify({"error": "Invalid username or password"}), 401
 
     return jsonify({
-        "message": "Login success",
         "access_token": create_access_token(identity=str(user.id)),
         "refresh_token": create_refresh_token(identity=str(user.id))
     })
 
 
-# ---------------------------------------------------
-# MOBILE API - SUBMIT REPORT
-# ---------------------------------------------------
+# -------------------------------------------------
+# API — SUBMIT REPORT
+# -------------------------------------------------
 @app.route("/api/report", methods=["POST"])
 @jwt_required()
 def submit_report():
@@ -278,7 +288,6 @@ def submit_report():
 
     if request.content_type.startswith("multipart/form-data"):
         form = request.form
-
         reporter = form.get("reporter")
         barangay = form.get("barangay")
         municipality = form.get("municipality")
@@ -291,7 +300,7 @@ def submit_report():
         if "photo" in request.files:
             f = request.files["photo"]
             fname = secure_filename(f"{uuid.uuid4().hex}_{f.filename}")
-            f.save(os.path.join(app.config["UPLOAD_FOLDER"], fname))
+            f.save(os.path.join(app.config['UPLOAD_FOLDER'], fname))
             photo = f"/static/uploads/{fname}"
 
     else:
@@ -314,9 +323,7 @@ def submit_report():
         lat=lat,
         lng=lng,
         photo=photo,
-        user_id=user_id,
-        status="Pending",
-        action_status="Not Resolved"
+        user_id=user_id
     )
 
     db.session.add(r)
@@ -325,9 +332,9 @@ def submit_report():
     return jsonify({"message": "Report submitted!", "id": r.id})
 
 
-# ---------------------------------------------------
-# DASHBOARD FILTER API
-# ---------------------------------------------------
+# -------------------------------------------------
+# API — FILTER REPORTS FOR DASHBOARD
+# -------------------------------------------------
 @app.route("/api/reports")
 def get_reports():
     barangay = request.args.get("barangay")
@@ -369,9 +376,9 @@ def get_reports():
     ])
 
 
-# ---------------------------------------------------
+# -------------------------------------------------
 # RUN APP
-# ---------------------------------------------------
-if __name__ == "__main__":
+# -------------------------------------------------
+if _name_ == "_main_":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
