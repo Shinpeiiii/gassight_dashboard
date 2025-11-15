@@ -1,5 +1,6 @@
-# app.py — GASsight (Render-ready)
-
+import os
+import uuid
+from datetime import datetime, timedelta
 from flask import (
     Flask, render_template, jsonify, send_from_directory,
     request, redirect, url_for, flash
@@ -11,61 +12,61 @@ from flask_login import (
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-
-from datetime import datetime, timedelta
-import os, uuid
-
 from flask_jwt_extended import (
     JWTManager, create_access_token, create_refresh_token,
     jwt_required, get_jwt_identity
 )
-
 from flask_cors import CORS
 
 
 # -------------------------------------------------
 # APP INITIALIZATION
 # -------------------------------------------------
-app = Flask(__name__, static_folder='static', template_folder='templates')
+app = Flask(__name__, static_folder="static", template_folder="templates")
 
-# Allow mobile apps
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# Security
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key')
-app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'jwt-secret')
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-key")
+app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "jwt-secret")
 
-app.config['SESSION_COOKIE_SECURE'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = "None"
-app.config['REMEMBER_COOKIE_SECURE'] = True
-app.config['REMEMBER_COOKIE_SAMESITE'] = "None"
+app.config["SESSION_COOKIE_SECURE"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "None"
+app.config["REMEMBER_COOKIE_SECURE"] = True
+app.config["REMEMBER_COOKIE_SAMESITE"] = "None"
 
-# Tokens
-app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=2)
-app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=7)
+app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=2)
+app.config["JWT_REFRESH_TOKEN_EXPIRES"] = timedelta(days=7)
 
 jwt = JWTManager(app)
-db = SQLAlchemy(app)
 login_manager = LoginManager(app)
-login_manager.login_view = 'login'
-
-# Upload folder
-app.config['UPLOAD_FOLDER'] = os.path.join(app.static_folder, "uploads")
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-
-# Admin code
-ADMIN_CODE = os.environ.get("ADMIN_CODE", "GASSIGHT_ADMIN")
-
+login_manager.login_view = "login"
 
 # -------------------------------------------------
-# DATABASE (Render + Local Support)
+# DATABASE CONFIGURATION (RENDER SAFE)
 # -------------------------------------------------
 db_url = os.environ.get("DATABASE_URL")
 
+# Fix old Heroku DB URLs
 if db_url and db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
-app.config["SQLALCHEMY_DATABASE_URI"] = db_url or "sqlite:///gassight.db"
+# Fallback to SQLite if DB is missing
+if not db_url:
+    print("⚠️ WARNING: No DATABASE_URL found. Using SQLite instead.")
+    db_url = "sqlite:///gassight.db"
+
+app.config["SQLALCHEMY_DATABASE_URI"] = db_url
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+db = SQLAlchemy(app)
+
+# -------------------------------------------------
+# UPLOADS FOLDER
+# -------------------------------------------------
+app.config["UPLOAD_FOLDER"] = os.path.join(app.static_folder, "uploads")
+os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+
+ADMIN_CODE = os.environ.get("ADMIN_CODE", "GASSIGHT_ADMIN")
 
 
 # -------------------------------------------------
@@ -75,7 +76,6 @@ class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
-
     full_name = db.Column(db.String(200))
     email = db.Column(db.String(200), unique=True)
     contact = db.Column(db.String(100))
@@ -106,7 +106,7 @@ class Report(db.Model):
     lat = db.Column(db.Float)
     lng = db.Column(db.Float)
 
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
 
 
 @login_manager.user_loader
@@ -114,29 +114,24 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 
-# Flask 3.x — SAFE TABLE CREATION
+# Create DB tables on startup
 with app.app_context():
     db.create_all()
 
 
 # -------------------------------------------------
-# STATIC (PWA SUPPORT)
+# STATIC FILES (PWA)
 # -------------------------------------------------
 @app.route("/service-worker.js")
-def sw():
+def service_worker():
     return send_from_directory("static", "service-worker.js")
-
-
-@app.route("/static/<path:path>")
-def static_files(path):
-    return send_from_directory(app.static_folder, path)
 
 
 # -------------------------------------------------
 # PAGE ROUTES
 # -------------------------------------------------
 @app.route("/")
-def landing():
+def home():
     if not current_user.is_authenticated:
         return redirect(url_for("login"))
     return redirect(url_for("dashboard" if current_user.is_admin else "no_access"))
@@ -156,20 +151,16 @@ def no_access():
     return render_template("no_access.html")
 
 
-# -------------------------------
-# LOGIN
-# -------------------------------
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for('dashboard' if current_user.is_admin else 'no_access'))
+        return redirect(url_for("dashboard" if current_user.is_admin else "no_access"))
 
     if request.method == "POST":
         username = request.form.get("username").strip()
         password = request.form.get("password")
 
         user = User.query.filter_by(username=username).first()
-
         if not user or not user.check_password(password):
             flash("Invalid username or password.", "danger")
             return render_template("login.html")
@@ -180,9 +171,6 @@ def login():
     return render_template("login.html")
 
 
-# -------------------------------
-# REGISTER
-# -------------------------------
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
@@ -204,7 +192,7 @@ def register():
             email=email,
             contact=contact,
             address=address,
-            is_admin=(admin_code == ADMIN_CODE)
+            is_admin=(admin_code == ADMIN_CODE),
         )
         user.set_password(password)
 
@@ -224,7 +212,7 @@ def logout():
 
 
 # -------------------------------------------------
-# API — MOBILE AUTH
+# MOBILE API — REGISTER / LOGIN
 # -------------------------------------------------
 @app.route("/api/register", methods=["POST"])
 def api_register():
@@ -236,13 +224,13 @@ def api_register():
     email = data.get("email", "")
     contact = data.get("contact", "")
     address = data.get("address", "")
-    admin_code = data.get("adminCode", "")
+    admin_code = data.get("adminCode", "").strip()
 
     if User.query.filter_by(username=username).first():
-        return jsonify({"error": "Username already exists"}), 409
+        return jsonify({"error": "Username exists"}), 409
 
     if User.query.filter_by(email=email).first():
-        return jsonify({"error": "Email already exists"}), 409
+        return jsonify({"error": "Email exists"}), 409
 
     user = User(
         username=username,
@@ -250,36 +238,36 @@ def api_register():
         email=email,
         contact=contact,
         address=address,
-        is_admin=(admin_code == ADMIN_CODE)
+        is_admin=(admin_code == ADMIN_CODE),
     )
     user.set_password(password)
 
     db.session.add(user)
     db.session.commit()
 
-    return jsonify({"message": "Account created successfully!"}), 201
+    return jsonify({"message": "Account created"}), 201
 
 
 @app.route("/api/login", methods=["POST"])
 def api_login():
     data = request.get_json()
-
-    username = data.get("username", "")
-    password = data.get("password", "")
+    username = data.get("username", "").strip()
+    password = data.get("password", "").strip()
 
     user = User.query.filter_by(username=username).first()
 
     if not user or not user.check_password(password):
-        return jsonify({"error": "Invalid username or password"}), 401
+        return jsonify({"error": "Invalid credentials"}), 401
 
     return jsonify({
+        "message": "Login success",
         "access_token": create_access_token(identity=str(user.id)),
         "refresh_token": create_refresh_token(identity=str(user.id))
     })
 
 
 # -------------------------------------------------
-# API — SUBMIT REPORT
+# MOBILE API — SUBMIT REPORT
 # -------------------------------------------------
 @app.route("/api/report", methods=["POST"])
 @jwt_required()
@@ -295,12 +283,12 @@ def submit_report():
         severity = form.get("severity", "Low")
         lat = float(form.get("lat"))
         lng = float(form.get("lng"))
-
         photo = ""
+
         if "photo" in request.files:
             f = request.files["photo"]
             fname = secure_filename(f"{uuid.uuid4().hex}_{f.filename}")
-            f.save(os.path.join(app.config['UPLOAD_FOLDER'], fname))
+            f.save(os.path.join(app.config["UPLOAD_FOLDER"], fname))
             photo = f"/static/uploads/{fname}"
 
     else:
@@ -323,7 +311,7 @@ def submit_report():
         lat=lat,
         lng=lng,
         photo=photo,
-        user_id=user_id
+        user_id=user_id,
     )
 
     db.session.add(r)
@@ -333,7 +321,7 @@ def submit_report():
 
 
 # -------------------------------------------------
-# API — FILTER REPORTS FOR DASHBOARD
+# DASHBOARD API — REPORT FILTERS
 # -------------------------------------------------
 @app.route("/api/reports")
 def get_reports():
@@ -377,7 +365,7 @@ def get_reports():
 
 
 # -------------------------------------------------
-# RUN APP
+# RUN APP (RENDER)
 # -------------------------------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
