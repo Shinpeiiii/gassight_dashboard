@@ -146,7 +146,7 @@ def login():
 
         if not user or not user.check_password(password):
             flash("Invalid username or password.", "danger")
-            return render_template("login.html")
+            return render_template("login.html", year=datetime.utcnow().year)
 
         login_user(user)
         return redirect(url_for('dashboard' if user.is_admin else 'no_access'))
