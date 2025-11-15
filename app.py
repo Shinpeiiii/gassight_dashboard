@@ -58,13 +58,13 @@ class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
-    is_admin = db.Column(db.Boolean, default=False)
 
-    # 👇 Basic info
     full_name = db.Column(db.String(200))
-    contact_number = db.Column(db.String(50))
+    email = db.Column(db.String(200), unique=True)
+    contact = db.Column(db.String(100))
     address = db.Column(db.String(255))
-    email = db.Column(db.String(120))
+
+    is_admin = db.Column(db.Boolean, default=False)
 
     def set_password(self, pw):
         self.password_hash = generate_password_hash(pw)
@@ -226,36 +226,56 @@ def loading():
 # -----------------------------
 # API – Mobile Auth
 # -----------------------------
-@app.route('/api/signup', methods=['POST'])
-def api_signup():
+@app.route('/api/register', methods=['POST'])
+def api_register():
     try:
         data = request.get_json(force=True)
+
         username = data.get('username', '').strip()
         password = data.get('password', '').strip()
-        full_name = data.get('full_name', '').strip()
-        contact = data.get('contact_number', '').strip()
-        address = data.get('address', '').strip()
+        full_name = data.get('fullName', '').strip()
         email = data.get('email', '').strip()
+        contact = data.get('contact', '').strip()
+        address = data.get('address', '').strip()
+        admin_code = data.get('adminCode', '').strip()
 
+        # -------------------------------
+        # VALIDATION
+        # -------------------------------
         if not username or not password:
-            return jsonify({"error": "Username and password required"}), 400
+            return jsonify({"error": "Username and password are required"}), 400
+        if not full_name or not email or not contact or not address:
+            return jsonify({"error": "All fields must be filled"}), 400
+
+        # Username must be unique
         if User.query.filter_by(username=username).first():
             return jsonify({"error": "Username already exists"}), 409
 
+        # Email must be unique
+        if User.query.filter_by(email=email).first():
+            return jsonify({"error": "Email already exists"}), 409
+
+        # -------------------------------
+        # CREATE USER
+        # -------------------------------
         user = User(
             username=username,
             full_name=full_name,
-            contact_number=contact,
-            address=address,
             email=email,
-            is_admin=False
+            contact=contact,
+            address=address,
+            is_admin=(admin_code == ADMIN_CODE)
         )
         user.set_password(password)
+
         db.session.add(user)
         db.session.commit()
+
         return jsonify({"message": "Account created successfully!"}), 201
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print("api_register error:", e)
+        return jsonify({"error": "Server error", "details": str(e)}), 500
 
 
 @app.route('/api/login', methods=['POST'])
