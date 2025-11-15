@@ -18,40 +18,51 @@ from flask_jwt_extended import (
 )
 from flask_cors import CORS
 
-# -----------------------------
-# App Setup
-# -----------------------------
-app = Flask(__name__, static_folder='static', template_folder='templates')
+
+# ---------------------------------------------------
+# APP SETUP (Render compatible)
+# ---------------------------------------------------
+app = Flask(_name_, static_folder="static", template_folder="templates")
 
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///gassight.db')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'jwt-secret')
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-key")
+app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "jwt-secret")
 
-app.config['SESSION_COOKIE_SECURE'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = "None"
-app.config['REMEMBER_COOKIE_SECURE'] = True
-app.config['REMEMBER_COOKIE_SAMESITE'] = "None"
+# For login_session cookies
+app.config["SESSION_COOKIE_SECURE"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "None"
+app.config["REMEMBER_COOKIE_SECURE"] = True
+app.config["REMEMBER_COOKIE_SAMESITE"] = "None"
 
-app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=2)
-app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=7)
+# JWT Expiration
+app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=2)
+app.config["JWT_REFRESH_TOKEN_EXPIRES"] = timedelta(days=7)
+
+# Render PostgreSQL fix
+db_url = os.environ.get("DATABASE_URL")
+if db_url and db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+app.config["SQLALCHEMY_DATABASE_URI"] = db_url or "sqlite:///gassight.db"
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 jwt = JWTManager(app)
 db = SQLAlchemy(app)
+
 login_manager = LoginManager(app)
-
-login_manager.login_view = 'login'
-
-app.config['UPLOAD_FOLDER'] = os.path.join(app.static_folder, "uploads")
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+login_manager.login_view = "login"
 
 ADMIN_CODE = os.environ.get("ADMIN_CODE", "GASSIGHT_ADMIN")
 
-# -----------------------------
-# Models
-# -----------------------------
+# Upload folder
+app.config["UPLOAD_FOLDER"] = os.path.join(app.static_folder, "uploads")
+os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+
+
+# ---------------------------------------------------
+# DATABASE MODELS
+# ---------------------------------------------------
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(120), unique=True, nullable=False)
@@ -87,7 +98,7 @@ class Report(db.Model):
     lat = db.Column(db.Float)
     lng = db.Column(db.Float)
 
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
 
 
 @login_manager.user_loader
@@ -95,48 +106,56 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 
-with app.app_context():
-    db.create_all()
+# ---------------------------------------------------
+# CREATE TABLES AUTOMATICALLY (RENDER SAFE)
+# ---------------------------------------------------
+@app.before_first_request
+def create_tables():
+    with app.app_context():
+        db.create_all()
 
 
-# -----------------------------
-# Static files for PWA
-# -----------------------------
-@app.route('/service-worker.js')
+# ---------------------------------------------------
+# STATIC FILES (SERVICE WORKER)
+# ---------------------------------------------------
+@app.route("/service-worker.js")
 def service_worker():
     return send_from_directory("static", "service-worker.js")
 
-@app.route('/static/<path:path>')
+
+@app.route("/static/<path:path>")
 def static_files(path):
     return send_from_directory(app.static_folder, path)
 
 
-# -----------------------------
-# AUTH + PAGE ROUTES
-# -----------------------------
-@app.route('/')
+# ---------------------------------------------------
+# PAGE ROUTES
+# ---------------------------------------------------
+@app.route("/")
 def home():
     if not current_user.is_authenticated:
-        return redirect(url_for('login'))
-    return redirect(url_for('dashboard' if current_user.is_admin else 'no_access'))
+        return redirect(url_for("login"))
+    return redirect(url_for("dashboard" if current_user.is_admin else "no_access"))
 
-@app.route('/dashboard')
+
+@app.route("/dashboard")
 @login_required
 def dashboard():
     if not current_user.is_admin:
         return redirect(url_for("no_access"))
     return render_template("dashboard.html")
 
-@app.route('/no-access')
+
+@app.route("/no-access")
 @login_required
 def no_access():
     return render_template("no_access.html")
 
 
-@app.route('/login', methods=['GET', 'POST'])
+@app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for('dashboard' if current_user.is_admin else 'no_access'))
+        return redirect(url_for("dashboard" if current_user.is_admin else "no_access"))
 
     if request.method == "POST":
         username = request.form.get("username").strip()
@@ -149,12 +168,12 @@ def login():
             return render_template("login.html", year=datetime.utcnow().year)
 
         login_user(user)
-        return redirect(url_for('dashboard' if user.is_admin else 'no_access'))
+        return redirect(url_for("dashboard" if user.is_admin else "no_access"))
 
-    return render_template("login.html")
+    return render_template("login.html", year=datetime.utcnow().year)
 
 
-@app.route('/register', methods=['GET', 'POST'])
+@app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
         username = request.form.get("username").strip()
@@ -182,21 +201,21 @@ def register():
         db.session.commit()
 
         login_user(user)
-        return redirect(url_for('dashboard' if user.is_admin else 'no_access'))
+        return redirect(url_for("dashboard" if user.is_admin else "no_access"))
 
     return render_template("register.html")
 
 
-@app.route('/logout')
+@app.route("/logout")
 def logout():
     logout_user()
     return redirect(url_for("login"))
 
 
-# -----------------------------
-# MOBILE API – AUTH
-# -----------------------------
-@app.route('/api/register', methods=['POST'])
+# ---------------------------------------------------
+# MOBILE API - REGISTER & LOGIN
+# ---------------------------------------------------
+@app.route("/api/register", methods=["POST"])
 def api_register():
     data = request.get_json()
 
@@ -230,7 +249,7 @@ def api_register():
     return jsonify({"message": "Account created successfully!"}), 201
 
 
-@app.route('/api/login', methods=['POST'])
+@app.route("/api/login", methods=["POST"])
 def api_login():
     data = request.get_json()
 
@@ -249,10 +268,10 @@ def api_login():
     })
 
 
-# -----------------------------
-# MOBILE API – SUBMIT REPORT
-# -----------------------------
-@app.route('/api/report', methods=['POST'])
+# ---------------------------------------------------
+# MOBILE API - SUBMIT REPORT
+# ---------------------------------------------------
+@app.route("/api/report", methods=["POST"])
 @jwt_required()
 def submit_report():
     user_id = int(get_jwt_identity())
@@ -272,7 +291,7 @@ def submit_report():
         if "photo" in request.files:
             f = request.files["photo"]
             fname = secure_filename(f"{uuid.uuid4().hex}_{f.filename}")
-            f.save(os.path.join(app.config['UPLOAD_FOLDER'], fname))
+            f.save(os.path.join(app.config["UPLOAD_FOLDER"], fname))
             photo = f"/static/uploads/{fname}"
 
     else:
@@ -306,10 +325,10 @@ def submit_report():
     return jsonify({"message": "Report submitted!", "id": r.id})
 
 
-# -----------------------------
-# DASHBOARD API – FILTERS
-# -----------------------------
-@app.route('/api/reports')
+# ---------------------------------------------------
+# DASHBOARD FILTER API
+# ---------------------------------------------------
+@app.route("/api/reports")
 def get_reports():
     barangay = request.args.get("barangay")
     severity = request.args.get("severity")
@@ -350,9 +369,9 @@ def get_reports():
     ])
 
 
-# -----------------------------
-# RUN APP (FIXED)
-# -----------------------------
-if __name__ == '__main__':
+# ---------------------------------------------------
+# RUN APP
+# ---------------------------------------------------
+if _name_ == "_main_":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host="0.0.0.0", port=port)
