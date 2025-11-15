@@ -26,7 +26,7 @@ from flask_cors import CORS
 # -------------------------------------------------
 # APP INITIALIZATION
 # -------------------------------------------------
-app = Flask(_name_, static_folder='static', template_folder='templates')
+app = Flask(__name__, static_folder='static', template_folder='templates')
 
 # Allow mobile apps
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -379,6 +379,6 @@ def get_reports():
 # -------------------------------------------------
 # RUN APP
 # -------------------------------------------------
-if _name_ == "_main_":
+if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
