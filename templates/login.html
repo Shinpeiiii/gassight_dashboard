@@ -108,33 +108,6 @@
     GASsight © <span id="year"></span>
   </div>
 
-  <script>
-    // Fix: Insert current year with JS (prevents Jinja error)
-    document.getElementById("year").textContent = new Date().getFullYear();
-
-    document.getElementById("loginForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-
-      const username = document.getElementById("username").value.trim();
-      const password = document.getElementById("password").value.trim();
-
-      const res = await fetch("/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        localStorage.setItem("access_token", data.access_token);
-        localStorage.setItem("refresh_token", data.refresh_token);
-        window.location.href = "/dashboard";
-      } else {
-        alert(data.error || "Login failed");
-      }
-    });
-  </script>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
