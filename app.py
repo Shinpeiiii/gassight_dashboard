@@ -22,7 +22,9 @@ from flask_jwt_extended import (
     jwt_required, get_jwt_identity, get_jwt
 )
 from flask_cors import CORS
-from sqlalchemy import text
+
+# SQLAlchemy helpers for migrations
+from sqlalchemy import text, inspect
 
 # optional Excel support
 try:
@@ -30,9 +32,9 @@ try:
 except ImportError:  # optional dependency
     Workbook = None
 
-# -------------------------------------------------
+# =================================================
 # APP INITIALIZATION
-# -------------------------------------------------
+# =================================================
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -63,9 +65,9 @@ def is_token_revoked(jwt_header, jwt_payload):
     return jwt_payload.get("jti") in BLOCKLIST
 
 
-# -------------------------------------------------
+# =================================================
 # DATABASE CONFIGURATION
-# -------------------------------------------------
+# =================================================
 db_url = os.environ.get("DATABASE_URL")
 
 if db_url and db_url.startswith("postgres://"):
@@ -80,9 +82,9 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
-# -------------------------------------------------
+# =================================================
 # UPLOADS
-# -------------------------------------------------
+# =================================================
 app.config["UPLOAD_FOLDER"] = os.path.join(app.static_folder, "uploads")
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
@@ -92,9 +94,9 @@ FIREBASE_SERVER_KEY = os.environ.get("FIREBASE_SERVER_KEY")  # optional for push
 ALLOWED_IMAGE_EXT = {"jpg", "jpeg", "png"}
 
 
-# -------------------------------------------------
+# =================================================
 # MODELS
-# -------------------------------------------------
+# =================================================
 class Province(db.Model):
     __tablename__ = "provinces"
     id = db.Column(db.Integer, primary_key=True)
@@ -120,7 +122,7 @@ class Barangay(db.Model):
 
 
 class User(db.Model, UserMixin):
-    __tablename__ = "user"
+    __tablename__ = "user"  # reserved word, will be quoted in Postgres
 
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(120), unique=True, nullable=False)
@@ -207,51 +209,90 @@ class FcmToken(db.Model):
 
 @login_manager.user_loader
 def load_user(user_id):
+    # Warning about Query.get is harmless; can be changed later if desired
     return User.query.get(int(user_id))
 
 
-# -------------------------------------------------
-# SIMPLE MIGRATIONS (SAFE, IGNORE IF ALREADY EXISTS)
-# -------------------------------------------------
+# =================================================
+# SIMPLE AUTO-MIGRATIONS (NO RENDER SHELL NEEDED)
+# =================================================
+def run_simple_migrations():
+    """
+    Adds missing columns (lat, lng, infestation_type, province, municipality,
+    barangay) if they are not present yet. Works for Postgres and SQLite.
+    """
+    engine = db.engine
+    inspector = inspect(engine)
+    dialect = engine.dialect.name
+
+    def has_column(table_name: str, col_name: str) -> bool:
+        try:
+            cols = [c["name"] for c in inspector.get_columns(table_name)]
+            return col_name in cols
+        except Exception as e:
+            print(f"⚠️ INSPECT ERROR for {table_name}.{col_name}: {e}")
+            return False
+
+    # REPORT columns
+    try:
+        if not has_column("report", "lat"):
+            db.session.execute(text("ALTER TABLE report ADD COLUMN lat DOUBLE PRECISION"))
+            print("✅ MIGRATION: added report.lat")
+
+        if not has_column("report", "lng"):
+            db.session.execute(text("ALTER TABLE report ADD COLUMN lng DOUBLE PRECISION"))
+            print("✅ MIGRATION: added report.lng")
+
+        if not has_column("report", "infestation_type"):
+            db.session.execute(text("ALTER TABLE report ADD COLUMN infestation_type TEXT"))
+            print("✅ MIGRATION: added report.infestation_type")
+    except Exception as e:
+        print("⚠️ MIGRATION ERROR for report table:", e)
+
+    # USER columns – table is named "user" (reserved, quoted in Postgres)
+    user_table_sql = '"user"' if dialect == "postgresql" else "user"
+
+    try:
+        if not has_column("user", "province"):
+            db.session.execute(
+                text(f"ALTER TABLE {user_table_sql} ADD COLUMN province VARCHAR(120)")
+            )
+            print("✅ MIGRATION: added user.province")
+
+        if not has_column("user", "municipality"):
+            db.session.execute(
+                text(f"ALTER TABLE {user_table_sql} ADD COLUMN municipality VARCHAR(120)")
+            )
+            print("✅ MIGRATION: added user.municipality")
+
+        if not has_column("user", "barangay"):
+            db.session.execute(
+                text(f"ALTER TABLE {user_table_sql} ADD COLUMN barangay VARCHAR(120)")
+            )
+            print("✅ MIGRATION: added user.barangay")
+    except Exception as e:
+        print("⚠️ MIGRATION ERROR for user table:", e)
+
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print("⚠️ MIGRATION COMMIT ERROR:", e)
+
+
+# Run table creation + migrations on startup
 with app.app_context():
     db.create_all()
-
-    # safe ALTERs – ignore errors if columns already exist
-    try:
-        db.session.execute(text("ALTER TABLE report ADD COLUMN lat DOUBLE PRECISION;"))
-    except Exception:
-        pass
-    try:
-        db.session.execute(text("ALTER TABLE report ADD COLUMN lng DOUBLE PRECISION;"))
-    except Exception:
-        pass
-    try:
-        db.session.execute(text("ALTER TABLE report ADD COLUMN infestation_type TEXT;"))
-    except Exception:
-        pass
-    try:
-        db.session.execute(text("ALTER TABLE user ADD COLUMN province VARCHAR(120);"))
-    except Exception:
-        pass
-    try:
-        db.session.execute(text("ALTER TABLE user ADD COLUMN municipality VARCHAR(120);"))
-    except Exception:
-        pass
-    try:
-        db.session.execute(text("ALTER TABLE user ADD COLUMN barangay VARCHAR(120);"))
-    except Exception:
-        pass
-
-    db.session.commit()
+    run_simple_migrations()
 
 
-# -------------------------------------------------
+# =================================================
 # HELPERS
-# -------------------------------------------------
-def sanitize(value):
-    if value is None:
+# =================================================
+def sanitize(text_val):
+    if text_val is None:
         return None
-    return value.strip()
+    return text_val.strip()
 
 
 def allowed_image(filename: str) -> bool:
@@ -329,9 +370,9 @@ def create_location_notifications(report: Report):
     if not farmers:
         return
 
-    location_label = report.barangay or report.municipality or report.province
-    title = f"High {report.infestation_type or 'infestation'} in {location_label}"
-    body = f"A {report.severity} level report was submitted in {location_label}."
+    loc = report.barangay or report.municipality or report.province
+    title = f"High {report.infestation_type or 'infestation'} in {loc}"
+    body = f"A {report.severity} level report was submitted in {loc}."
 
     for farmer in farmers:
         notif = Notification(
@@ -400,17 +441,17 @@ def apply_report_filters(q, args):
     return q
 
 
-# -------------------------------------------------
+# =================================================
 # STATIC (PWA)
-# -------------------------------------------------
+# =================================================
 @app.route("/service-worker.js")
 def service_worker():
     return send_from_directory("static", "service-worker.js")
 
 
-# -------------------------------------------------
+# =================================================
 # PAGE ROUTES (ADMIN WEB)
-# -------------------------------------------------
+# =================================================
 @app.route("/")
 def home():
     if not current_user.is_authenticated:
@@ -496,9 +537,9 @@ def logout():
     return redirect(url_for("login"))
 
 
-# -------------------------------------------------
+# =================================================
 # API — LOCATION (FOR DROPDOWNS)
-# -------------------------------------------------
+# =================================================
 @app.route("/api/provinces")
 def api_provinces():
     data = Province.query.order_by(Province.name.asc()).all()
@@ -525,9 +566,9 @@ def api_barangays():
     return jsonify([b.name for b in data])
 
 
-# -------------------------------------------------
+# =================================================
 # MOBILE API — SIGNUP / LOGIN / TOKEN CHECK
-# -------------------------------------------------
+# =================================================
 @app.route("/api/signup", methods=["POST"])
 def api_signup():
     """
@@ -643,9 +684,9 @@ def api_logout():
     return jsonify({"message": "Logged out"}), 200
 
 
-# -------------------------------------------------
+# =================================================
 # MOBILE API — SAVE FCM TOKEN
-# -------------------------------------------------
+# =================================================
 @app.route("/api/fcm-token", methods=["POST"])
 @jwt_required()
 def api_fcm_token():
@@ -668,19 +709,20 @@ def api_fcm_token():
     return jsonify({"message": "FCM token saved"}), 200
 
 
-# -------------------------------------------------
-# MOBILE API — SUBMIT REPORT (GEO-TAGGED + INFESTATION TYPE)
-# -------------------------------------------------
+# =================================================
+# MOBILE API — SUBMIT REPORT
+# =================================================
 @app.route("/api/report", methods=["POST"])
 @jwt_required()
 def submit_report():
     """
     Accepts:
-    - multipart/form-data (with optional photo) from mobile app
+    - multipart/form-data (with optional photo)
     - application/json (offline sync)
+
     Fields:
       reporter, province, municipality, barangay, severity,
-      infestation_type, lat, lng, photo
+      infestation_type, lat, lng, photo / photo_url
     """
     user_id = int(get_jwt_identity())
 
@@ -757,9 +799,9 @@ def submit_report():
     }), 201
 
 
-# -------------------------------------------------
+# =================================================
 # MOBILE API — NOTIFICATIONS INBOX
-# -------------------------------------------------
+# =================================================
 @app.route("/api/notifications", methods=["GET"])
 @jwt_required()
 def api_notifications():
@@ -807,9 +849,9 @@ def api_notifications_read():
     return jsonify({"message": "Notifications marked as read"}), 200
 
 
-# -------------------------------------------------
+# =================================================
 # DASHBOARD API — FILTERED REPORTS (JSON)
-# -------------------------------------------------
+# =================================================
 @app.route("/api/reports")
 def get_reports():
     q = apply_report_filters(Report.query, request.args)
@@ -835,9 +877,9 @@ def get_reports():
     ])
 
 
-# -------------------------------------------------
-# DASHBOARD EXPORT — CSV (no extra dependency)
-# -------------------------------------------------
+# =================================================
+# DASHBOARD EXPORT — CSV
+# =================================================
 @app.route("/api/reports/export/csv")
 @login_required
 def export_reports_csv():
@@ -882,9 +924,9 @@ def export_reports_csv():
     return resp
 
 
-# -------------------------------------------------
-# DASHBOARD EXPORT — EXCEL (openpyxl, optional)
-# -------------------------------------------------
+# =================================================
+# DASHBOARD EXPORT — EXCEL
+# =================================================
 @app.route("/api/reports/export/excel")
 @login_required
 def export_reports_excel():
@@ -941,9 +983,9 @@ def export_reports_excel():
     )
 
 
-# -------------------------------------------------
-# DASHBOARD PRINT VIEW — HTML (for “PDF” via browser print)
-# -------------------------------------------------
+# =================================================
+# DASHBOARD PRINT VIEW — HTML
+# =================================================
 @app.route("/reports/print")
 @login_required
 def print_reports_view():
@@ -956,9 +998,9 @@ def print_reports_view():
     return render_template("reports_print.html", reports=reports)
 
 
-# -------------------------------------------------
-# ADMIN — POPULATE SAMPLE REPORTS FOR TESTING
-# -------------------------------------------------
+# =================================================
+# ADMIN — POPULATE SAMPLE REPORTS
+# =================================================
 @app.route("/admin/reports/populate", methods=["POST"])
 @login_required
 def populate_reports():
@@ -1005,9 +1047,9 @@ def populate_reports():
     return jsonify({"message": "Sample reports populated"}), 201
 
 
-# -------------------------------------------------
+# =================================================
 # RUN
-# -------------------------------------------------
+# =================================================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
