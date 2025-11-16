@@ -209,31 +209,38 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 
-# Create tables and run simple migrations (lat/lng/infestation_type + user home location)
-# Create tables and run schema patches safely
+
+from sqlalchemy import text
+
+# Create tables and run simple migrations
 with app.app_context():
     db.create_all()
 
-    # Safe column adds for PostgreSQL AND SQLite
-    def safe_add_column(table, column_def):
-        try:
-            db.session.execute(f'ALTER TABLE {table} ADD COLUMN {column_def};')
-        except Exception as e:
-            # ignore duplicate column errors
-            if "duplicate column" in str(e).lower() or "already exists" in str(e).lower():
-                pass
-            else:
-                print("⚠️ MIGRATION ERROR:", e)
-
-    # REPORT table patches
-    safe_add_column("report", "lat DOUBLE PRECISION")
-    safe_add_column("report", "lng DOUBLE PRECISION")
-    safe_add_column("report", "infestation_type TEXT")
-
-    # USER home-location patches
-    safe_add_column("user", "province VARCHAR(120)")
-    safe_add_column("user", "municipality VARCHAR(120)")
-    safe_add_column("user", "barangay VARCHAR(120)")
+    # safe ALTERs – ignore errors if columns already exist
+    try:
+        db.session.execute(text("ALTER TABLE report ADD COLUMN lat DOUBLE PRECISION;"))
+    except Exception:
+        pass
+    try:
+        db.session.execute(text("ALTER TABLE report ADD COLUMN lng DOUBLE PRECISION;"))
+    except Exception:
+        pass
+    try:
+        db.session.execute(text("ALTER TABLE report ADD COLUMN infestation_type TEXT;"))
+    except Exception:
+        pass
+    try:
+        db.session.execute(text("ALTER TABLE user ADD COLUMN province VARCHAR(120);"))
+    except Exception:
+        pass
+    try:
+        db.session.execute(text("ALTER TABLE user ADD COLUMN municipality VARCHAR(120);"))
+    except Exception:
+        pass
+    try:
+        db.session.execute(text("ALTER TABLE user ADD COLUMN barangay VARCHAR(120);"))
+    except Exception:
+        pass
 
     db.session.commit()
 
