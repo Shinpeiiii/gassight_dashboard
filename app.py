@@ -16,7 +16,6 @@ from flask_jwt_extended import (
 )
 from flask_cors import CORS
 
-from flask_wtf.csrf import CSRFProtect
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_talisman import Talisman
@@ -28,7 +27,6 @@ app = Flask(__name__, static_folder="static", template_folder="templates")
 
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-csrf = CSRFProtect(app)
 limiter = Limiter(key_func=get_remote_address)
 limiter.init_app(app)
 
