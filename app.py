@@ -7,7 +7,7 @@ from flask import (
     request, redirect, url_for, flash, abort
 )
 from flask_sqlalchemy import SQLAlchemy
-    ...
+
 from werkzeug.utils import secure_filename
 
 from flask_jwt_extended import (
