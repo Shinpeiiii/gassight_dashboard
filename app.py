@@ -16,7 +16,7 @@ from flask_jwt_extended import (
 )
 from flask_cors import CORS
 
-from flask_talisman import Talisman
+
 
 # -------------------------------------------------
 # APP SECURITY INITIALIZATION
@@ -27,7 +27,7 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 
 
-Talisman(app, content_security_policy=None)
+
 
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-key")
 app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "jwt-secret")
