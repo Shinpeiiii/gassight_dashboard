@@ -7,16 +7,12 @@ from flask import (
     request, redirect, url_for, flash, abort
 )
 from flask_sqlalchemy import SQLAlchemy
-from flask_login import (
-    LoginManager, UserMixin, login_user, logout_user,
-    login_required, current_user
-)
-from werkzeug.security import generate_password_hash, check_password_hash
+    ...
 from werkzeug.utils import secure_filename
 
 from flask_jwt_extended import (
     JWTManager, create_access_token, create_refresh_token,
-    jwt_required, get_jwt_identity, get_jwt, jwt_refresh_token_required
+    jwt_required, get_jwt_identity, get_jwt
 )
 from flask_cors import CORS
 
@@ -96,7 +92,7 @@ class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(200), unique=True)
     password_hash = db.Column(db.String(200))
-    role = db.Column(db.String(20), default="farmer")  # farmer, admin
+    role = db.Column(db.String(20), default="farmer")
 
     def set_password(self, pw): self.password_hash = generate_password_hash(pw)
     def check_password(self, pw): return check_password_hash(self.password_hash, pw)
@@ -132,7 +128,7 @@ with app.app_context():
     db.create_all()
 
 # -------------------------------------------------
-# HELPER FUNCTIONS
+# HELPERS
 # -------------------------------------------------
 def allowed_image(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_IMAGE_EXT
@@ -154,7 +150,7 @@ def enforce_https():
         return redirect(request.url.replace("http://", "https://"))
 
 # -------------------------------------------------
-# AUTH ROUTES (WEB)
+# WEB AUTH
 # -------------------------------------------------
 @app.route("/login", methods=["GET", "POST"])
 def login():
