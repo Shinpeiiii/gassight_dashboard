@@ -2,235 +2,572 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>GASsight Dashboard</title>
+    <title>GASsight Admin Dashboard</title>
 
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <!-- Bootstrap -->
+    <link
+        rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+    >
 
-    <!-- Leaflet Map -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+    <!-- Leaflet -->
+    <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet/dist/leaflet.css"
+    />
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
+    <!-- Leaflet Heatmap plugin -->
+    <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
     <style>
-        body { background: #f4f6f9; }
-        .map-container {
-            height: 500px;
+        body {
+            background: #f4f6f9;
+        }
+
+        .navbar-brand img {
+            height: 40px;
+            width: 40px;
+            object-fit: contain;
+            margin-right: 10px;
+        }
+
+        #map {
+            height: 450px;
             border-radius: 12px;
             overflow: hidden;
-            margin-top: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.05);
         }
+
         .filter-card {
             border-radius: 12px;
             padding: 20px;
-            background: white;
-            box-shadow: 0 0 10px #0001;
+            background: #ffffff;
+            box-shadow: 0 0 10px rgba(0,0,0,0.05);
         }
-        .table-photo {
-            width: 55px;
-            height: 55px;
-            border-radius: 8px;
+
+        .kpi-card {
+            border-radius: 12px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.05);
+        }
+
+        .kpi-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+        }
+
+        .high-row {
+            background-color: #ffe5e5 !important;
+        }
+
+        #reports-table img {
+            border-radius: 6px;
             object-fit: cover;
         }
-        .badge-gas { background:#097a00; }
-        .badge-rbb { background:#ce0000; }
-        .badge-other { background:#6c757d; }
     </style>
 </head>
 <body>
 
-<div class="container py-4">
+<!-- TOP NAV -->
+<nav class="navbar navbar-light bg-white shadow-sm">
+    <div class="container-fluid px-4">
+        <a class="navbar-brand d-flex align-items-center" href="#">
+            <img src="/static/img/snail-logo.png" alt="GASsight Logo">
+            <span class="fw-bold text-success">GASsight Admin Dashboard</span>
+        </a>
 
-    <h2 class="fw-bold text-success mb-4">GASsight Admin Dashboard</h2>
+        <div class="text-end small">
+            <div>Last update: <span id="lastUpdate">–</span></div>
+        </div>
+    </div>
+</nav>
 
-    <!-- FILTERS -->
-    <div class="filter-card">
+<div class="container-fluid mt-4 px-4">
 
-        <div class="row g-3">
-            <div class="col-md-3">
-                <label>Province</label>
-                <select id="provinceFilter" class="form-select">
-                    <option>All</option>
-                </select>
-            </div>
-
-            <div class="col-md-3">
-                <label>Municipality</label>
-                <select id="municipalityFilter" class="form-select">
-                    <option>All</option>
-                </select>
-            </div>
-
-            <div class="col-md-3">
-                <label>Barangay</label>
-                <select id="barangayFilter" class="form-select">
-                    <option>All</option>
-                </select>
-            </div>
-
-            <div class="col-md-3">
-                <label>Severity</label>
-                <select id="severityFilter" class="form-select">
-                    <option>All</option>
-                    <option>Low</option>
-                    <option>Medium</option>
-                    <option>High</option>
-                </select>
-            </div>
-
-            <!-- NEW: AUTOMATED INFESTATION TYPE FILTER -->
-            <div class="col-md-3">
-                <label>Infestation Type</label>
-                <select id="infestationFilter" class="form-select">
-                    <option>All</option>
-                    <option>Golden Apple Snail (GAS)</option>
-                    <option>Rice Black Bug (RBB)</option>
-                    <option>Armyworm</option>
-                    <option>Rodents</option>
-                    <option>Others</option>
-                </select>
-            </div>
-
-            <div class="col-md-3">
-                <label>Start Date</label>
-                <input type="date" id="startDate" class="form-control">
-            </div>
-
-            <div class="col-md-3">
-                <label>End Date</label>
-                <input type="date" id="endDate" class="form-control">
-            </div>
-
-            <div class="col-md-3 d-flex align-items-end">
-                <button class="btn btn-success w-100" onclick="loadReports()">Apply Filter</button>
+    <!-- KPI CARDS -->
+    <div class="row g-3 mb-3">
+        <div class="col-md-3">
+            <div class="card kpi-card border-start border-success border-4">
+                <div class="card-body">
+                    <div class="text-muted small">Total Sightings</div>
+                    <div id="totalSightings" class="kpi-value text-success">0</div>
+                </div>
             </div>
         </div>
 
+        <div class="col-md-3">
+            <div class="card kpi-card border-start border-danger border-4">
+                <div class="card-body">
+                    <div class="text-muted small">Active High-Risk Hotspots</div>
+                    <div id="activeHotspots" class="kpi-value text-danger">0</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card kpi-card border-start border-warning border-4">
+                <div class="card-body">
+                    <div class="text-muted small">Active Reporters</div>
+                    <div id="activeReporters" class="kpi-value text-warning">0</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card kpi-card border-start border-primary border-4">
+                <div class="card-body">
+                    <div class="text-muted small">Average Response Time (hrs)</div>
+                    <div id="avgResponse" class="kpi-value text-primary">0</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- FILTERS -->
+    <div class="filter-card mb-3">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label for="barangayFilter" class="form-label">Barangay</label>
+                <select id="barangayFilter" class="form-select">
+                    <option value="All">All</option>
+                </select>
+            </div>
+
+            <div class="col-md-2">
+                <label for="severityFilter" class="form-label">Severity</label>
+                <select id="severityFilter" class="form-select">
+                    <option value="All">All</option>
+                    <option value="Low">Low</option>
+                    <option value="Moderate">Moderate</option>
+                    <option value="High">High</option>
+                </select>
+            </div>
+
+            <div class="col-md-3">
+                <label for="infestationFilter" class="form-label">Infestation Type</label>
+                <select id="infestationFilter" class="form-select">
+                    <option value="All">All</option>
+                    <option value="Golden Apple Snail (GAS)">Golden Apple Snail (GAS)</option>
+                    <option value="Rice Black Bug (RBB)">Rice Black Bug (RBB)</option>
+                    <option value="Brown Plant Hopper (BPH)">Brown Plant Hopper (BPH)</option>
+                    <option value="Others">Others</option>
+                </select>
+            </div>
+
+            <div class="col-md-2">
+                <label for="startDate" class="form-label">Start Date</label>
+                <input id="startDate" type="date" class="form-control">
+            </div>
+
+            <div class="col-md-2">
+                <label for="endDate" class="form-label">End Date</label>
+                <input id="endDate" type="date" class="form-control">
+            </div>
+
+            <div class="col-md-2 mt-3 mt-md-0">
+                <button id="filterBtn" class="btn btn-success w-100">
+                    Apply Filter
+                </button>
+            </div>
+
+            <div class="col-md-2 mt-3 mt-md-0">
+                <label for="refreshInterval" class="form-label">Auto-refresh</label>
+                <select id="refreshInterval" class="form-select">
+                    <option value="off">Off</option>
+                    <option value="30">Every 30s</option>
+                    <option value="60">Every 1 min</option>
+                    <option value="300">Every 5 min</option>
+                </select>
+            </div>
+
+            <div class="col-md-2 mt-3 mt-md-4">
+                <button id="manualRefresh" class="btn btn-outline-secondary w-100">
+                    Refresh Now
+                </button>
+            </div>
+        </div>
     </div>
 
     <!-- MAP -->
-    <div class="map-container" id="reportMap"></div>
+    <div class="row mb-3">
+        <div class="col-12">
+            <div id="map"></div>
+        </div>
+    </div>
+
+    <!-- CHARTS -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-header fw-semibold">Severity Distribution</div>
+                <div class="card-body">
+                    <canvas id="severityChart" height="200"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-header fw-semibold">Reports by Barangay</div>
+                <div class="card-body">
+                    <canvas id="barangayChart" height="200"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-header fw-semibold">Weekly Trend</div>
+                <div class="card-body">
+                    <canvas id="trendChart" height="200"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- TABLE -->
-    <div class="mt-4">
-        <div class="card">
-            <div class="card-header fw-bold">Reports</div>
-            <div class="card-body p-0">
-                
-                <table class="table table-striped table-hover m-0">
+    <div class="card mb-5">
+        <div class="card-header fw-semibold">
+            Recent Reports
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table id="reports-table" class="table table-hover table-striped mb-0">
                     <thead class="table-success">
                         <tr>
                             <th>Date</th>
                             <th>Reporter</th>
                             <th>Location</th>
                             <th>Severity</th>
-                            <th>Infestation</th>
                             <th>Photo</th>
+                            <th>Status</th>
+                            <th>Map</th>
                         </tr>
                     </thead>
-                    <tbody id="reportTableBody"></tbody>
+                    <tbody>
+                        <!-- filled by JS -->
+                    </tbody>
                 </table>
-
             </div>
         </div>
     </div>
 
 </div>
 
+<!-- YOUR ORIGINAL DASHBOARD.JS (slightly wrapped but unchanged in logic) -->
 <script>
-    let map = L.map("reportMap").setView([12.8797, 121.7740], 6);
-    let markersLayer = L.layerGroup().addTo(map);
+    // -----------------------------------------------
+    // GLOBAL VARIABLES
+    // -----------------------------------------------
+    let map;
+    let heatLayer;
+    let markersLayer = L.layerGroup();
+    window.allReports = [];
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19
-    }).addTo(map);
+    let severityChart, barangayChart, trendChart;
 
-    window.onload = () => { loadProvinces(); loadReports(); };
+    let autoRefreshTimer = null;
 
-    function loadProvinces() {
-        fetch('/api/provinces')
-            .then(r => r.json())
-            .then(data => {
-                let provSel = document.getElementById("provinceFilter");
-                data.forEach(p => provSel.innerHTML += `<option>${p}</option>`);
-            });
+
+    // -----------------------------------------------
+    // INIT MAP
+    // -----------------------------------------------
+    function initMap() {
+        map = L.map("map").setView([10.7, 122.56], 10);
+
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            maxZoom: 18,
+            attribution: "&copy; OpenStreetMap contributors",
+        }).addTo(map);
+
+        markersLayer.addTo(map);
     }
 
-    // Populate municipalities when province changes
-    document.getElementById("provinceFilter").addEventListener("change", () => {
-        fetch(`/api/municipalities?province=${provinceFilter.value}`)
-            .then(r => r.json())
-            .then(data => {
-                municipalityFilter.innerHTML = "<option>All</option>";
-                barangayFilter.innerHTML = "<option>All</option>";
-                data.forEach(m => municipalityFilter.innerHTML += `<option>${m}</option>`);
+
+    // -----------------------------------------------
+    // LOAD FILTER OPTIONS
+    // -----------------------------------------------
+    async function loadFilterDropdowns() {
+        const barangaySelect = document.getElementById("barangayFilter");
+
+        barangaySelect.innerHTML = `<option value="All">All</option>`;
+
+        try {
+            const res = await fetch("/api/barangays");
+            const data = await res.json();
+
+            data.forEach((b) => {
+                const opt = document.createElement("option");
+                opt.value = b;
+                opt.textContent = b;
+                barangaySelect.appendChild(opt);
             });
-    });
-
-    document.getElementById("municipalityFilter").addEventListener("change", () => {
-        fetch(`/api/barangays?municipality=${municipalityFilter.value}`)
-            .then(r => r.json())
-            .then(data => {
-                barangayFilter.innerHTML = "<option>All</option>";
-                data.forEach(b => barangayFilter.innerHTML += `<option>${b}</option>`);
-            });
-    });
-
-    function loadReports() {
-
-        let params = new URLSearchParams({
-            province: provinceFilter.value,
-            municipality: municipalityFilter.value,
-            barangay: barangayFilter.value,
-            severity: severityFilter.value,
-            infestation_type: infestationFilter.value,
-            start_date: startDate.value,
-            end_date: endDate.value
-        });
-
-        fetch(`/api/reports?${params.toString()}`)
-            .then(r => r.json())
-            .then(data => {
-                renderTable(data);
-                renderMap(data);
-            });
+        } catch (err) {
+            console.error("Failed loading barangays:", err);
+        }
     }
 
-    function renderTable(reports) {
-        let body = document.getElementById("reportTableBody");
-        body.innerHTML = "";
 
-        reports.forEach(r => {
-            body.innerHTML += `
-                <tr>
-                    <td>${r.date}</td>
-                    <td>${r.reporter}</td>
-                    <td>${r.barangay}, ${r.municipality}, ${r.province}</td>
-                    <td><span class="badge bg-warning">${r.severity}</span></td>
-                    <td><span class="badge bg-info">${r.infestation_type || "N/A"}</span></td>
-                    <td>
-                        ${r.photo ? `<img src="${r.photo}" class="table-photo">` : "No Photo"}
-                    </td>
-                </tr>
-            `;
-        });
+    // -----------------------------------------------
+    // FETCH FILTERED REPORTS
+    // -----------------------------------------------
+    async function fetchReports() {
+        const barangay = document.getElementById("barangayFilter").value;
+        const severity = document.getElementById("severityFilter").value;
+        const infestationType = document.getElementById("infestationFilter")
+            ? document.getElementById("infestationFilter").value
+            : "All";
+        const start = document.getElementById("startDate").value;
+        const end = document.getElementById("endDate").value;
+
+        const params = new URLSearchParams();
+
+        if (barangay !== "All") params.append("barangay", barangay);
+        if (severity !== "All") params.append("severity", severity);
+        if (infestationType !== "All") params.append("infestation_type", infestationType);
+        if (start) params.append("start_date", start);
+        if (end) params.append("end_date", end);
+
+        const res = await fetch(`/api/reports?${params.toString()}`);
+        return await res.json();
     }
 
-    function renderMap(reports) {
+
+    // -----------------------------------------------
+    // UPDATE EVERYTHING
+    // -----------------------------------------------
+    async function updateReports() {
+        window.allReports = await fetchReports();
+        updateHeatmap();
+        updateMarkers();
+        updateTable();
+        updateKPIs();
+        updateCharts();
+        updateLastUpdated();
+    }
+
+
+    // -----------------------------------------------
+    // UPDATE HEATMAP
+    // -----------------------------------------------
+    function updateHeatmap() {
+        if (heatLayer) heatLayer.remove();
+
+        const points = window.allReports
+            .filter(r => r.lat && r.lng)
+            .map(r => [
+                r.lat,
+                r.lng,
+                r.severity === "High" ? 1.0 :
+                r.severity === "Moderate" ? 0.6 : 0.3
+            ]);
+
+        if (!points.length) return;
+
+        heatLayer = L.heatLayer(points, {
+            radius: 25,
+            blur: 20,
+            maxZoom: 17,
+        }).addTo(map);
+    }
+
+
+    // -----------------------------------------------
+    // UPDATE MARKERS
+    // -----------------------------------------------
+    function updateMarkers() {
         markersLayer.clearLayers();
 
-        reports.forEach(r => {
+        window.allReports.forEach(r => {
             if (!r.lat || !r.lng) return;
 
-            let marker = L.marker([r.lat, r.lng]).addTo(markersLayer);
+            const color = r.severity === "High" ? "red" :
+                          r.severity === "Moderate" ? "orange" : "green";
+
+            const marker = L.circleMarker([r.lat, r.lng], {
+                radius: 8,
+                color: color,
+                fillColor: color,
+                fillOpacity: 0.8,
+            });
 
             marker.bindPopup(`
-                <b>${r.infestation_type}</b><br>
-                <b>${r.severity}</b> severity<br><br>
-                <b>${r.barangay}, ${r.municipality}</b><br>
-                ${r.province}<br><br>
-                <img src="${r.photo}" width="120" style="border-radius:6px;">
+                <strong>${r.barangay}, ${r.municipality}</strong><br>
+                Severity: <b>${r.severity}</b><br>
+                Type: ${r.infestation_type || "Unknown"}<br>
+                <img src="${r.photo || '/static/icons/icon-192.png'}"
+                     style="width:100px;border-radius:5px;margin-top:4px;">
             `);
+
+            markersLayer.addLayer(marker);
         });
     }
+
+
+    // -----------------------------------------------
+    // UPDATE TABLE
+    // -----------------------------------------------
+    function updateTable() {
+        const tbody = document.querySelector("#reports-table tbody");
+        tbody.innerHTML = "";
+
+        window.allReports.forEach(r => {
+            const tr = document.createElement("tr");
+            if (r.severity === "High") tr.classList.add("high-row");
+
+            const badgeClass =
+                r.severity === "High" ? "danger" :
+                r.severity === "Moderate" ? "warning" : "success";
+
+            tr.innerHTML = `
+                <td>${r.date}</td>
+                <td>${r.reporter || "Unknown"}</td>
+                <td>${r.barangay}, ${r.municipality}</td>
+                <td><span class="badge bg-${badgeClass}">${r.severity}</span></td>
+                <td>
+                    <img src="${r.photo || '/static/icons/icon-192.png'}"
+                         style="width:50px;height:50px;">
+                </td>
+                <td>${r.status}</td>
+                <td>
+                    <button class="btn btn-sm btn-outline-primary"
+                            onclick="focusReport(${r.lat},${r.lng})">
+                        Locate
+                    </button>
+                </td>
+            `;
+
+            tbody.appendChild(tr);
+        });
+    }
+
+    function focusReport(lat, lng) {
+        if (!lat || !lng) return;
+        map.setView([lat, lng], 15);
+    }
+
+
+    // -----------------------------------------------
+    // UPDATE KPIs
+    // -----------------------------------------------
+    function updateKPIs() {
+        document.getElementById("totalSightings").innerText = window.allReports.length;
+
+        const activeHotspots = window.allReports.filter(r => r.severity === "High").length;
+        document.getElementById("activeHotspots").innerText = activeHotspots;
+
+        const reporters = new Set(window.allReports.map(r => r.reporter));
+        document.getElementById("activeReporters").innerText = reporters.size;
+
+        document.getElementById("avgResponse").innerText = "0";
+    }
+
+
+    // -----------------------------------------------
+    // UPDATE CHARTS
+    // -----------------------------------------------
+    function updateCharts() {
+        const severityCount = { Low: 0, Moderate: 0, High: 0 };
+        const barangayCount = {};
+        const weekly = {};
+
+        window.allReports.forEach(r => {
+            if (severityCount[r.severity] !== undefined) severityCount[r.severity]++;
+
+            barangayCount[r.barangay] = (barangayCount[r.barangay] || 0) + 1;
+
+            const week = (r.date || "").substring(0, 10);
+            if (week) weekly[week] = (weekly[week] || 0) + 1;
+        });
+
+        drawSeverityChart(severityCount);
+        drawBarangayChart(barangayCount);
+        drawTrendChart(weekly);
+    }
+
+
+    function drawSeverityChart(data) {
+        if (severityChart) severityChart.destroy();
+
+        severityChart = new Chart(document.getElementById("severityChart"), {
+            type: "pie",
+            data: {
+                labels: ["Low", "Moderate", "High"],
+                datasets: [{
+                    data: [data.Low, data.Moderate, data.High],
+                }]
+            }
+        });
+    }
+
+
+    function drawBarangayChart(data) {
+        if (barangayChart) barangayChart.destroy();
+
+        barangayChart = new Chart(document.getElementById("barangayChart"), {
+            type: "bar",
+            data: {
+                labels: Object.keys(data),
+                datasets: [{
+                    data: Object.values(data),
+                }]
+            }
+        });
+    }
+
+
+    function drawTrendChart(data) {
+        if (trendChart) trendChart.destroy();
+
+        const labels = Object.keys(data).sort();
+        trendChart = new Chart(document.getElementById("trendChart"), {
+            type: "line",
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: labels.map(d => data[d]),
+                }]
+            }
+        });
+    }
+
+
+    // -----------------------------------------------
+    // AUTO-REFRESH
+    // -----------------------------------------------
+    function updateLastUpdated() {
+        document.getElementById("lastUpdate").innerText =
+            new Date().toLocaleTimeString();
+    }
+
+    function startAutoRefresh(seconds) {
+        if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+
+        if (seconds === "off") return;
+
+        autoRefreshTimer = setInterval(updateReports, seconds * 1000);
+    }
+
+
+    // -----------------------------------------------
+    // INITIALIZE
+    // -----------------------------------------------
+    window.addEventListener("load", async () => {
+        initMap();
+        await loadFilterDropdowns();
+        await updateReports();
+
+        document.getElementById("filterBtn").onclick = updateReports;
+
+        document.getElementById("refreshInterval").addEventListener("change", (e) => {
+            startAutoRefresh(e.target.value);
+        });
+
+        document.getElementById("manualRefresh").onclick = updateReports;
+    });
 </script>
 
 </body>
