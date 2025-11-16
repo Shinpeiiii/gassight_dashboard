@@ -121,7 +121,6 @@ class Report(db.Model):
 
     reporter = db.Column(db.String(120))
 
-    # stored as text (from mobile)
     province = db.Column(db.String(120))
     municipality = db.Column(db.String(120))
     barangay = db.Column(db.String(120))
@@ -130,23 +129,28 @@ class Report(db.Model):
     status = db.Column(db.String(50), default="Pending")
     action_status = db.Column(db.String(50), default="Not Resolved")
 
+    # NEW: infestation type (e.g. GAS, RBB, etc.)
+    infestation_type = db.Column(db.String(120))
+
     photo = db.Column(db.String(255))
 
-    # ✅ GEO-TAGGING COLUMNS
+    # GEO-TAGGING
     lat = db.Column(db.Float)   # latitude
     lng = db.Column(db.Float)   # longitude
 
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
 
+
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# Create tables (for dev / SQLite)
+
+# Create tables (dev)
 with app.app_context():
     db.create_all()
-    # --- AUTO DATABASE MIGRATION FOR LAT/LNG (runs once) ---
-with app.app_context():
+
+    # OPTIONAL one-time migration helper (lat, lng, infestation_type)
     try:
         db.session.execute("ALTER TABLE report ADD COLUMN lat DOUBLE PRECISION;")
         print("✔ Added column: lat")
@@ -159,9 +163,13 @@ with app.app_context():
     except Exception as e:
         print("ℹ lng column already exists or could not be added:", e)
 
-    db.session.commit()
-# ---------------------------------------------------------
+    try:
+        db.session.execute("ALTER TABLE report ADD COLUMN infestation_type TEXT;")
+        print("✔ Added column: infestation_type")
+    except Exception as e:
+        print("ℹ infestation_type column already exists or could not be added:", e)
 
+    db.session.commit()
 
 # -------------------------------------------------
 # STATIC (PWA)
@@ -260,31 +268,32 @@ def logout():
 
 # -------------------------------------------------
 # API — LOCATION (FOR DASHBOARD FILTER DROPDOWNS)
+# (returns names, not IDs)
 # -------------------------------------------------
 @app.route("/api/provinces")
 def api_provinces():
     data = Province.query.order_by(Province.name.asc()).all()
-    return jsonify([{"id": p.id, "name": p.name} for p in data])
+    return jsonify([p.name for p in data])
 
 
 @app.route("/api/municipalities")
 def api_municipalities():
-    province_id = request.args.get("province", type=int)
+    province_name = request.args.get("province")
     q = Municipality.query
-    if province_id:
-        q = q.filter_by(province_id=province_id)
+    if province_name:
+        q = q.join(Province).filter(Province.name == province_name)
     data = q.order_by(Municipality.name.asc()).all()
-    return jsonify([{"id": m.id, "name": m.name} for m in data])
+    return jsonify([m.name for m in data])
 
 
 @app.route("/api/barangays")
 def api_barangays():
-    municipality_id = request.args.get("municipality", type=int)
+    municipality_name = request.args.get("municipality")
     q = Barangay.query
-    if municipality_id:
-        q = q.filter_by(municipality_id=municipality_id)
+    if municipality_name:
+        q = q.join(Municipality).filter(Municipality.name == municipality_name)
     data = q.order_by(Barangay.name.asc()).all()
-    return jsonify([{"id": b.id, "name": b.name} for b in data])
+    return jsonify([b.name for b in data])
 
 # -------------------------------------------------
 # MOBILE API — SIGNUP / LOGIN / TOKEN CHECK
@@ -292,7 +301,6 @@ def api_barangays():
 @app.route("/api/signup", methods=["POST"])
 def api_signup():
     """
-    Used by Flutter SignupScreen.
     Body JSON: {username, password}
     Returns tokens on success.
     """
@@ -316,8 +324,10 @@ def api_signup():
     access_token = create_access_token(identity=str(user.id))
     refresh_token = create_refresh_token(identity=str(user.id))
 
+    # return both 'token' and 'access_token' for compatibility
     return jsonify({
         "message": "Signup success",
+        "token": access_token,
         "access_token": access_token,
         "refresh_token": refresh_token,
         "username": username,
@@ -327,9 +337,8 @@ def api_signup():
 @app.route("/api/register", methods=["POST"])
 def api_register_legacy():
     """
-    Original mobile register endpoint (kept for compatibility).
+    Legacy register endpoint (if old app uses it).
     Body JSON: {username, password, fullName, email, contact, address, adminCode}
-    Does NOT return tokens.
     """
     data = request.get_json() or {}
 
@@ -366,9 +375,8 @@ def api_register_legacy():
 @app.route("/api/login", methods=["POST"])
 def api_login():
     """
-    Used by Flutter LoginScreen.
     Body JSON: {username, password}
-    Returns: {message, access_token, refresh_token}
+    Returns: {message, token, access_token, refresh_token}
     """
     data = request.get_json() or {}
     username = data.get("username", "").strip()
@@ -379,10 +387,14 @@ def api_login():
     if not user or not user.check_password(password):
         return jsonify({"error": "Invalid credentials"}), 401
 
+    access_token = create_access_token(identity=str(user.id))
+    refresh_token = create_refresh_token(identity=str(user.id))
+
     return jsonify({
         "message": "Login success",
-        "access_token": create_access_token(identity=str(user.id)),
-        "refresh_token": create_refresh_token(identity=str(user.id)),
+        "token": access_token,
+        "access_token": access_token,
+        "refresh_token": refresh_token,
         "username": user.username,
     }), 200
 
@@ -397,21 +409,21 @@ def api_check_token():
     return jsonify({"valid": True, "user_id": int(user_id)}), 200
 
 # -------------------------------------------------
-# MOBILE API — SUBMIT REPORT (GEO-TAGGED)
+# MOBILE API — SUBMIT REPORT (GEO-TAGGED + INFESTATION TYPE)
 # -------------------------------------------------
 @app.route("/api/report", methods=["POST"])
 @jwt_required()
 def submit_report():
     """
-    Accepts both:
-    - multipart/form-data (with optional photo)
+    Accepts:
+    - multipart/form-data (with optional photo) from mobile app
     - application/json (offline sync)
-    Expected fields:
-      reporter, province, municipality, barangay, severity, lat, lng
+    Fields:
+      reporter, province, municipality, barangay, severity,
+      infestation_type, lat, lng, photo
     """
     user_id = int(get_jwt_identity())
 
-    # multipart (with photo)
     if request.content_type and request.content_type.startswith("multipart/form-data"):
         form = request.form
 
@@ -420,6 +432,7 @@ def submit_report():
         municipality = form.get("municipality")
         barangay = form.get("barangay")
         severity = form.get("severity", "Low")
+        infestation_type = form.get("infestation_type", "Other")
 
         try:
             lat = float(form.get("lat")) if form.get("lat") else None
@@ -437,7 +450,6 @@ def submit_report():
                 photo = f"/static/uploads/{fname}"
 
     else:
-        # JSON body (offline sync)
         data = request.get_json() or {}
 
         reporter = data.get("reporter")
@@ -445,6 +457,7 @@ def submit_report():
         municipality = data.get("municipality")
         barangay = data.get("barangay")
         severity = data.get("severity", "Low")
+        infestation_type = data.get("infestation_type", "Other")
 
         lat = data.get("lat")
         lng = data.get("lng")
@@ -463,6 +476,7 @@ def submit_report():
         municipality=municipality,
         barangay=barangay,
         severity=severity,
+        infestation_type=infestation_type,
         lat=lat,
         lng=lng,
         photo=photo,
@@ -476,6 +490,7 @@ def submit_report():
         "message": "Report submitted successfully",
         "id": report.id,
         "severity": report.severity,
+        "infestation_type": report.infestation_type,
     }), 201
 
 # -------------------------------------------------
@@ -483,11 +498,11 @@ def submit_report():
 # -------------------------------------------------
 @app.route("/api/reports")
 def get_reports():
-    # Filters from dashboard.js
     province_name = request.args.get("province")
     municipality_name = request.args.get("municipality")
     barangay_name = request.args.get("barangay")
     severity = request.args.get("severity")
+    infestation_type = request.args.get("infestation_type")
     start_date = request.args.get("start_date")
     end_date = request.args.get("end_date")
 
@@ -504,6 +519,9 @@ def get_reports():
 
     if severity and severity != "All":
         q = q.filter(Report.severity == severity)
+
+    if infestation_type and infestation_type != "All":
+        q = q.filter(Report.infestation_type == infestation_type)
 
     if start_date and end_date:
         try:
@@ -524,6 +542,7 @@ def get_reports():
             "municipality": r.municipality,
             "barangay": r.barangay,
             "severity": r.severity,
+            "infestation_type": r.infestation_type,
             "status": r.status,
             "action_status": r.action_status,
             "photo": r.photo,
