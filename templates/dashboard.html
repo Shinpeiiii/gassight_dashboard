@@ -2,22 +2,16 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>GASsight Admin Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GASsight Dashboard</title>
 
     <!-- Bootstrap -->
-    <link
-        rel="stylesheet"
-        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
-    >
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 
     <!-- Leaflet -->
-    <link
-        rel="stylesheet"
-        href="https://unpkg.com/leaflet/dist/leaflet.css"
-    />
-    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 
-    <!-- Leaflet Heatmap plugin -->
+    <!-- Heatmap -->
     <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
 
     <!-- Chart.js -->
@@ -25,550 +19,237 @@
 
     <style>
         body {
-            background: #f4f6f9;
-        }
-
-        .navbar-brand img {
-            height: 40px;
-            width: 40px;
-            object-fit: contain;
-            margin-right: 10px;
-        }
-
-        #map {
-            height: 450px;
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 0 10px rgba(0,0,0,0.05);
-        }
-
-        .filter-card {
-            border-radius: 12px;
-            padding: 20px;
-            background: #ffffff;
-            box-shadow: 0 0 10px rgba(0,0,0,0.05);
+            background: #f5f5f5;
         }
 
         .kpi-card {
             border-radius: 12px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.05);
+            padding: 18px;
+            background: white;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border-left: 6px solid #198754;
         }
 
-        .kpi-value {
-            font-size: 1.8rem;
-            font-weight: 700;
+        .kpi-red {
+            border-left-color: #dc3545;
         }
 
-        .high-row {
-            background-color: #ffe5e5 !important;
+        .kpi-yellow {
+            border-left-color: #ffc107;
         }
 
-        #reports-table img {
-            border-radius: 6px;
-            object-fit: cover;
+        .kpi-blue {
+            border-left-color: #0d6efd;
+        }
+
+        #map {
+            height: 430px;
+            border-radius: 10px;
+        }
+
+        .panel-box {
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            border: 2px solid #dc3545;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .chart-box {
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
     </style>
 </head>
+
 <body>
 
-<!-- TOP NAV -->
-<nav class="navbar navbar-light bg-white shadow-sm">
-    <div class="container-fluid px-4">
-        <a class="navbar-brand d-flex align-items-center" href="#">
-            <img src="/static/img/snail-logo.png" alt="GASsight Logo">
-            <span class="fw-bold text-success">GASsight Admin Dashboard</span>
-        </a>
+<!-- ================================ -->
+<!-- HEADER -->
+<!-- ================================ -->
+<div class="d-flex justify-content-between align-items-center px-3 py-2 bg-white shadow-sm border-bottom sticky-top"
+     style="z-index: 1000;">
 
-        <div class="text-end small">
-            <div>Last update: <span id="lastUpdate">–</span></div>
+    <div class="d-flex align-items-center">
+        <img src="/static/images/snail-logo.png" style="height:55px;width:55px;border-radius:50%;object-fit:cover;">
+        <div class="ms-2">
+            <h4 class="fw-bold m-0">GASsight Dashboard</h4>
+            <small class="text-muted">Golden Apple Snail Infestation Tracking & Visualization</small>
         </div>
     </div>
-</nav>
 
-<div class="container-fluid mt-4 px-4">
-
-    <!-- KPI CARDS -->
-    <div class="row g-3 mb-3">
-        <div class="col-md-3">
-            <div class="card kpi-card border-start border-success border-4">
-                <div class="card-body">
-                    <div class="text-muted small">Total Sightings</div>
-                    <div id="totalSightings" class="kpi-value text-success">0</div>
-                </div>
-            </div>
+    <div class="text-end">
+        <div class="small text-muted mb-1">
+            Last updated: <span id="lastUpdate" class="fw-semibold">--:--:--</span>
         </div>
 
-        <div class="col-md-3">
-            <div class="card kpi-card border-start border-danger border-4">
-                <div class="card-body">
-                    <div class="text-muted small">Active High-Risk Hotspots</div>
-                    <div id="activeHotspots" class="kpi-value text-danger">0</div>
-                </div>
-            </div>
-        </div>
+        <div class="d-flex gap-2 justify-content-end">
+            <button id="manualRefresh" class="btn btn-outline-primary btn-sm">Refresh Now</button>
 
-        <div class="col-md-3">
-            <div class="card kpi-card border-start border-warning border-4">
-                <div class="card-body">
-                    <div class="text-muted small">Active Reporters</div>
-                    <div id="activeReporters" class="kpi-value text-warning">0</div>
-                </div>
-            </div>
+            <select id="refreshInterval" class="form-select form-select-sm w-auto">
+                <option value="off">Auto-refresh: Off</option>
+                <option value="10">Every 10s</option>
+                <option value="30">Every 30s</option>
+                <option value="60">Every 1m</option>
+            </select>
+
+            <a href="/logout" class="btn btn-danger btn-sm">Logout</a>
         </div>
+    </div>
+</div>
+
+
+
+<!-- ================================ -->
+<!-- KPI CARDS -->
+<!-- ================================ -->
+<div class="container mt-3">
+    <div class="row g-3">
 
         <div class="col-md-3">
-            <div class="card kpi-card border-start border-primary border-4">
-                <div class="card-body">
-                    <div class="text-muted small">Average Response Time (hrs)</div>
-                    <div id="avgResponse" class="kpi-value text-primary">0</div>
-                </div>
+            <div class="kpi-card">
+                <h6>Total Sightings</h6>
+                <h2 id="totalSightings" class="fw-bold">0</h2>
             </div>
         </div>
+
+        <div class="col-md-3">
+            <div class="kpi-card kpi-red">
+                <h6>Active High-Risk Hotspots</h6>
+                <h2 id="activeHotspots" class="fw-bold">0</h2>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="kpi-card kpi-yellow">
+                <h6>Active Reporters</h6>
+                <h2 id="activeReporters" class="fw-bold">0</h2>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="kpi-card kpi-blue">
+                <h6>Average Response Time (hrs)</h6>
+                <h2 id="avgResponse" class="fw-bold">0</h2>
+            </div>
+        </div>
+
     </div>
+</div>
 
-    <!-- FILTERS -->
-    <div class="filter-card mb-3">
-        <div class="row g-3 align-items-end">
-            <div class="col-md-3">
-                <label for="barangayFilter" class="form-label">Barangay</label>
-                <select id="barangayFilter" class="form-select">
-                    <option value="All">All</option>
-                </select>
-            </div>
 
-            <div class="col-md-2">
-                <label for="severityFilter" class="form-label">Severity</label>
-                <select id="severityFilter" class="form-select">
-                    <option value="All">All</option>
-                    <option value="Low">Low</option>
-                    <option value="Moderate">Moderate</option>
-                    <option value="High">High</option>
-                </select>
-            </div>
 
-            <div class="col-md-3">
-                <label for="infestationFilter" class="form-label">Infestation Type</label>
-                <select id="infestationFilter" class="form-select">
-                    <option value="All">All</option>
-                    <option value="Golden Apple Snail (GAS)">Golden Apple Snail (GAS)</option>
-                    <option value="Rice Black Bug (RBB)">Rice Black Bug (RBB)</option>
-                    <option value="Brown Plant Hopper (BPH)">Brown Plant Hopper (BPH)</option>
-                    <option value="Others">Others</option>
-                </select>
-            </div>
 
-            <div class="col-md-2">
-                <label for="startDate" class="form-label">Start Date</label>
-                <input id="startDate" type="date" class="form-control">
-            </div>
+<!-- ================================ -->
+<!-- FILTER CONTROLS -->
+<!-- ================================ -->
+<div class="container mt-4">
 
-            <div class="col-md-2">
-                <label for="endDate" class="form-label">End Date</label>
-                <input id="endDate" type="date" class="form-control">
-            </div>
+    <div class="row g-3">
 
-            <div class="col-md-2 mt-3 mt-md-0">
-                <button id="filterBtn" class="btn btn-success w-100">
-                    Apply Filter
-                </button>
-            </div>
-
-            <div class="col-md-2 mt-3 mt-md-0">
-                <label for="refreshInterval" class="form-label">Auto-refresh</label>
-                <select id="refreshInterval" class="form-select">
-                    <option value="off">Off</option>
-                    <option value="30">Every 30s</option>
-                    <option value="60">Every 1 min</option>
-                    <option value="300">Every 5 min</option>
-                </select>
-            </div>
-
-            <div class="col-md-2 mt-3 mt-md-4">
-                <button id="manualRefresh" class="btn btn-outline-secondary w-100">
-                    Refresh Now
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- MAP -->
-    <div class="row mb-3">
-        <div class="col-12">
-            <div id="map"></div>
-        </div>
-    </div>
-
-    <!-- CHARTS -->
-    <div class="row g-3 mb-4">
-        <div class="col-md-4">
-            <div class="card h-100">
-                <div class="card-header fw-semibold">Severity Distribution</div>
-                <div class="card-body">
-                    <canvas id="severityChart" height="200"></canvas>
-                </div>
-            </div>
+        <div class="col-md-2">
+            <label>Barangay</label>
+            <select id="barangayFilter" class="form-select"></select>
         </div>
 
-        <div class="col-md-4">
-            <div class="card h-100">
-                <div class="card-header fw-semibold">Reports by Barangay</div>
-                <div class="card-body">
-                    <canvas id="barangayChart" height="200"></canvas>
-                </div>
-            </div>
+        <div class="col-md-2">
+            <label>Severity</label>
+            <select id="severityFilter" class="form-select">
+                <option>All</option>
+                <option>Low</option>
+                <option>Moderate</option>
+                <option>High</option>
+            </select>
         </div>
 
-        <div class="col-md-4">
-            <div class="card h-100">
-                <div class="card-header fw-semibold">Weekly Trend</div>
-                <div class="card-body">
-                    <canvas id="trendChart" height="200"></canvas>
-                </div>
-            </div>
+        <div class="col-md-2">
+            <label>Infestation Type</label>
+            <select id="infestationFilter" class="form-select">
+                <option>All</option>
+                <option>Snail</option>
+                <option>Egg Cluster</option>
+            </select>
         </div>
-    </div>
 
-    <!-- TABLE -->
-    <div class="card mb-5">
-        <div class="card-header fw-semibold">
-            Recent Reports
+        <div class="col-md-2">
+            <label>Start Date</label>
+            <input id="startDate" type="date" class="form-control">
         </div>
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table id="reports-table" class="table table-hover table-striped mb-0">
-                    <thead class="table-success">
-                        <tr>
-                            <th>Date</th>
-                            <th>Reporter</th>
-                            <th>Location</th>
-                            <th>Severity</th>
-                            <th>Photo</th>
-                            <th>Status</th>
-                            <th>Map</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <!-- filled by JS -->
-                    </tbody>
-                </table>
-            </div>
+
+        <div class="col-md-2">
+            <label>End Date</label>
+            <input id="endDate" type="date" class="form-control">
         </div>
+
+        <div class="col-md-2 d-flex align-items-end">
+            <button id="filterBtn" class="btn btn-success w-100">Apply Filter</button>
+        </div>
+
     </div>
 
 </div>
 
-<!-- YOUR ORIGINAL DASHBOARD.JS (slightly wrapped but unchanged in logic) -->
-<script>
-    // -----------------------------------------------
-    // GLOBAL VARIABLES
-    // -----------------------------------------------
-    let map;
-    let heatLayer;
-    let markersLayer = L.layerGroup();
-    window.allReports = [];
-
-    let severityChart, barangayChart, trendChart;
-
-    let autoRefreshTimer = null;
-
-
-    // -----------------------------------------------
-    // INIT MAP
-    // -----------------------------------------------
-    function initMap() {
-        map = L.map("map").setView([10.7, 122.56], 10);
-
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-            maxZoom: 18,
-            attribution: "&copy; OpenStreetMap contributors",
-        }).addTo(map);
-
-        markersLayer.addTo(map);
-    }
-
-
-    // -----------------------------------------------
-    // LOAD FILTER OPTIONS
-    // -----------------------------------------------
-    async function loadFilterDropdowns() {
-        const barangaySelect = document.getElementById("barangayFilter");
-
-        barangaySelect.innerHTML = `<option value="All">All</option>`;
-
-        try {
-            const res = await fetch("/api/barangays");
-            const data = await res.json();
-
-            data.forEach((b) => {
-                const opt = document.createElement("option");
-                opt.value = b;
-                opt.textContent = b;
-                barangaySelect.appendChild(opt);
-            });
-        } catch (err) {
-            console.error("Failed loading barangays:", err);
-        }
-    }
-
-
-    // -----------------------------------------------
-    // FETCH FILTERED REPORTS
-    // -----------------------------------------------
-    async function fetchReports() {
-        const barangay = document.getElementById("barangayFilter").value;
-        const severity = document.getElementById("severityFilter").value;
-        const infestationType = document.getElementById("infestationFilter")
-            ? document.getElementById("infestationFilter").value
-            : "All";
-        const start = document.getElementById("startDate").value;
-        const end = document.getElementById("endDate").value;
-
-        const params = new URLSearchParams();
-
-        if (barangay !== "All") params.append("barangay", barangay);
-        if (severity !== "All") params.append("severity", severity);
-        if (infestationType !== "All") params.append("infestation_type", infestationType);
-        if (start) params.append("start_date", start);
-        if (end) params.append("end_date", end);
-
-        const res = await fetch(`/api/reports?${params.toString()}`);
-        return await res.json();
-    }
-
-
-    // -----------------------------------------------
-    // UPDATE EVERYTHING
-    // -----------------------------------------------
-    async function updateReports() {
-        window.allReports = await fetchReports();
-        updateHeatmap();
-        updateMarkers();
-        updateTable();
-        updateKPIs();
-        updateCharts();
-        updateLastUpdated();
-    }
-
-
-    // -----------------------------------------------
-    // UPDATE HEATMAP
-    // -----------------------------------------------
-    function updateHeatmap() {
-        if (heatLayer) heatLayer.remove();
-
-        const points = window.allReports
-            .filter(r => r.lat && r.lng)
-            .map(r => [
-                r.lat,
-                r.lng,
-                r.severity === "High" ? 1.0 :
-                r.severity === "Moderate" ? 0.6 : 0.3
-            ]);
-
-        if (!points.length) return;
-
-        heatLayer = L.heatLayer(points, {
-            radius: 25,
-            blur: 20,
-            maxZoom: 17,
-        }).addTo(map);
-    }
-
-
-    // -----------------------------------------------
-    // UPDATE MARKERS
-    // -----------------------------------------------
-    function updateMarkers() {
-        markersLayer.clearLayers();
-
-        window.allReports.forEach(r => {
-            if (!r.lat || !r.lng) return;
-
-            const color = r.severity === "High" ? "red" :
-                          r.severity === "Moderate" ? "orange" : "green";
-
-            const marker = L.circleMarker([r.lat, r.lng], {
-                radius: 8,
-                color: color,
-                fillColor: color,
-                fillOpacity: 0.8,
-            });
-
-            marker.bindPopup(`
-                <strong>${r.barangay}, ${r.municipality}</strong><br>
-                Severity: <b>${r.severity}</b><br>
-                Type: ${r.infestation_type || "Unknown"}<br>
-                <img src="${r.photo || '/static/icons/icon-192.png'}"
-                     style="width:100px;border-radius:5px;margin-top:4px;">
-            `);
-
-            markersLayer.addLayer(marker);
-        });
-    }
-
-
-    // -----------------------------------------------
-    // UPDATE TABLE
-    // -----------------------------------------------
-    function updateTable() {
-        const tbody = document.querySelector("#reports-table tbody");
-        tbody.innerHTML = "";
-
-        window.allReports.forEach(r => {
-            const tr = document.createElement("tr");
-            if (r.severity === "High") tr.classList.add("high-row");
-
-            const badgeClass =
-                r.severity === "High" ? "danger" :
-                r.severity === "Moderate" ? "warning" : "success";
-
-            tr.innerHTML = `
-                <td>${r.date}</td>
-                <td>${r.reporter || "Unknown"}</td>
-                <td>${r.barangay}, ${r.municipality}</td>
-                <td><span class="badge bg-${badgeClass}">${r.severity}</span></td>
-                <td>
-                    <img src="${r.photo || '/static/icons/icon-192.png'}"
-                         style="width:50px;height:50px;">
-                </td>
-                <td>${r.status}</td>
-                <td>
-                    <button class="btn btn-sm btn-outline-primary"
-                            onclick="focusReport(${r.lat},${r.lng})">
-                        Locate
-                    </button>
-                </td>
-            `;
-
-            tbody.appendChild(tr);
-        });
-    }
-
-    function focusReport(lat, lng) {
-        if (!lat || !lng) return;
-        map.setView([lat, lng], 15);
-    }
-
-
-    // -----------------------------------------------
-    // UPDATE KPIs
-    // -----------------------------------------------
-    function updateKPIs() {
-        document.getElementById("totalSightings").innerText = window.allReports.length;
-
-        const activeHotspots = window.allReports.filter(r => r.severity === "High").length;
-        document.getElementById("activeHotspots").innerText = activeHotspots;
-
-        const reporters = new Set(window.allReports.map(r => r.reporter));
-        document.getElementById("activeReporters").innerText = reporters.size;
-
-        document.getElementById("avgResponse").innerText = "0";
-    }
-
-
-    // -----------------------------------------------
-    // UPDATE CHARTS
-    // -----------------------------------------------
-    function updateCharts() {
-        const severityCount = { Low: 0, Moderate: 0, High: 0 };
-        const barangayCount = {};
-        const weekly = {};
-
-        window.allReports.forEach(r => {
-            if (severityCount[r.severity] !== undefined) severityCount[r.severity]++;
-
-            barangayCount[r.barangay] = (barangayCount[r.barangay] || 0) + 1;
-
-            const week = (r.date || "").substring(0, 10);
-            if (week) weekly[week] = (weekly[week] || 0) + 1;
-        });
-
-        drawSeverityChart(severityCount);
-        drawBarangayChart(barangayCount);
-        drawTrendChart(weekly);
-    }
-
-
-    function drawSeverityChart(data) {
-        if (severityChart) severityChart.destroy();
-
-        severityChart = new Chart(document.getElementById("severityChart"), {
-            type: "pie",
-            data: {
-                labels: ["Low", "Moderate", "High"],
-                datasets: [{
-                    data: [data.Low, data.Moderate, data.High],
-                }]
-            }
-        });
-    }
-
-
-    function drawBarangayChart(data) {
-        if (barangayChart) barangayChart.destroy();
-
-        barangayChart = new Chart(document.getElementById("barangayChart"), {
-            type: "bar",
-            data: {
-                labels: Object.keys(data),
-                datasets: [{
-                    data: Object.values(data),
-                }]
-            }
-        });
-    }
-
-
-    function drawTrendChart(data) {
-        if (trendChart) trendChart.destroy();
-
-        const labels = Object.keys(data).sort();
-        trendChart = new Chart(document.getElementById("trendChart"), {
-            type: "line",
-            data: {
-                labels: labels,
-                datasets: [{
-                    data: labels.map(d => data[d]),
-                }]
-            }
-        });
-    }
-
-
-    // -----------------------------------------------
-    // AUTO-REFRESH
-    // -----------------------------------------------
-    function updateLastUpdated() {
-        document.getElementById("lastUpdate").innerText =
-            new Date().toLocaleTimeString();
-    }
-
-    function startAutoRefresh(seconds) {
-        if (autoRefreshTimer) clearInterval(autoRefreshTimer);
-
-        if (seconds === "off") return;
-
-        autoRefreshTimer = setInterval(updateReports, seconds * 1000);
-    }
-
-
-    // -----------------------------------------------
-    // INITIALIZE
-    // -----------------------------------------------
-    window.addEventListener("load", async () => {
-        initMap();
-        await loadFilterDropdowns();
-        await updateReports();
-
-        document.getElementById("filterBtn").onclick = updateReports;
-
-        document.getElementById("refreshInterval").addEventListener("change", (e) => {
-            startAutoRefresh(e.target.value);
-        });
-
-        document.getElementById("manualRefresh").onclick = updateReports;
-    });
-</script>
+
+
+
+<!-- ================================ -->
+<!-- HEATMAP PANEL -->
+<!-- ================================ -->
+<div class="container mt-4">
+    <div class="panel-box">
+        <h5 class="fw-bold mb-3">Infestation Heatmap</h5>
+        <div id="map"></div>
+    </div>
+</div>
+
+
+
+<!-- ================================ -->
+<!-- CHARTS ROW -->
+<!-- ================================ -->
+<div class="container mt-4">
+    <div class="row g-3">
+
+        <div class="col-md-4">
+            <div class="chart-box">
+                <h6 class="fw-bold mb-2">Severity Distribution</h6>
+                <canvas id="severityChart"></canvas>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="chart-box">
+                <h6 class="fw-bold mb-2">Reports by Barangay</h6>
+                <canvas id="barangayChart"></canvas>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="chart-box">
+                <h6 class="fw-bold mb-2">Weekly Trend</h6>
+                <canvas id="trendChart"></canvas>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+
+
+<!-- ================================ -->
+<!-- FOOTER -->
+<!-- ================================ -->
+<div class="text-center text-muted p-3 mt-4">
+    © 2025 GASsight | Dashboard System
+</div>
+
+
+
+<!-- JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/static/js/dashboard.js"></script>
 
 </body>
 </html>
