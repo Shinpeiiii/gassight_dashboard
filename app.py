@@ -41,18 +41,17 @@ jwt = JWTManager(app)
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
+
 # -------------------------------------------------
-# DATABASE CONFIGURATION (RENDER SAFE)
+# DATABASE CONFIGURATION
 # -------------------------------------------------
 db_url = os.environ.get("DATABASE_URL")
 
-# Fix old Heroku DB URLs
 if db_url and db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
-# Fallback to SQLite if DB is missing
 if not db_url:
-    print("⚠️ WARNING: No DATABASE_URL found. Using SQLite instead.")
+    print("⚠️ WARNING: No DATABASE_URL found. Using SQLite.")
     db_url = "sqlite:///gassight.db"
 
 app.config["SQLALCHEMY_DATABASE_URI"] = db_url
@@ -60,8 +59,9 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
+
 # -------------------------------------------------
-# UPLOADS FOLDER
+# UPLOADS
 # -------------------------------------------------
 app.config["UPLOAD_FOLDER"] = os.path.join(app.static_folder, "uploads")
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
@@ -70,8 +70,32 @@ ADMIN_CODE = os.environ.get("ADMIN_CODE", "GASSIGHT_ADMIN")
 
 
 # -------------------------------------------------
-# MODELS
+# MODELS (FINAL — WITH 3-LEVEL CHAIN)
 # -------------------------------------------------
+class Province(db.Model):
+    __tablename__ = "provinces"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), unique=True, nullable=False)
+
+
+class Municipality(db.Model):
+    __tablename__ = "municipalities"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    province_id = db.Column(db.Integer, db.ForeignKey("provinces.id"), nullable=False)
+
+    province = db.relationship("Province")
+
+
+class Barangay(db.Model):
+    __tablename__ = "barangays"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    municipality_id = db.Column(db.Integer, db.ForeignKey("municipalities.id"), nullable=False)
+
+    municipality = db.relationship("Municipality")
+
+
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(120), unique=True, nullable=False)
@@ -94,9 +118,10 @@ class Report(db.Model):
     date = db.Column(db.DateTime, default=datetime.utcnow)
 
     reporter = db.Column(db.String(120))
-    barangay = db.Column(db.String(120))
-    municipality = db.Column(db.String(120))
+
     province = db.Column(db.String(120))
+    municipality = db.Column(db.String(120))
+    barangay = db.Column(db.String(120))
 
     severity = db.Column(db.String(50))
     status = db.Column(db.String(50), default="Pending")
@@ -114,13 +139,13 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 
-# Create DB tables on startup
+# Create all tables
 with app.app_context():
     db.create_all()
 
 
 # -------------------------------------------------
-# STATIC FILES (PWA)
+# STATIC (PWA)
 # -------------------------------------------------
 @app.route("/service-worker.js")
 def service_worker():
@@ -212,6 +237,35 @@ def logout():
 
 
 # -------------------------------------------------
+# API — LOCATION CHAIN
+# -------------------------------------------------
+@app.route("/api/provinces")
+def api_provinces():
+    data = Province.query.order_by(Province.name.asc()).all()
+    return jsonify([{"id": p.id, "name": p.name} for p in data])
+
+
+@app.route("/api/municipalities")
+def api_municipalities():
+    province_id = request.args.get("province")
+    q = Municipality.query
+    if province_id:
+        q = q.filter_by(province_id=province_id)
+    data = q.order_by(Municipality.name.asc()).all()
+    return jsonify([{"id": m.id, "name": m.name} for m in data])
+
+
+@app.route("/api/barangays")
+def api_barangays():
+    municipality_id = request.args.get("municipality")
+    q = Barangay.query
+    if municipality_id:
+        q = q.filter_by(municipality_id=municipality_id)
+    data = q.order_by(Barangay.name.asc()).all()
+    return jsonify([{"id": b.id, "name": b.name} for b in data])
+
+
+# -------------------------------------------------
 # MOBILE API — REGISTER / LOGIN
 # -------------------------------------------------
 @app.route("/api/register", methods=["POST"])
@@ -274,17 +328,20 @@ def api_login():
 def submit_report():
     user_id = int(get_jwt_identity())
 
+    # multipart (with photo)
     if request.content_type.startswith("multipart/form-data"):
         form = request.form
+
         reporter = form.get("reporter")
-        barangay = form.get("barangay")
-        municipality = form.get("municipality")
         province = form.get("province")
+        municipality = form.get("municipality")
+        barangay = form.get("barangay")
         severity = form.get("severity", "Low")
+
         lat = float(form.get("lat"))
         lng = float(form.get("lng"))
-        photo = ""
 
+        photo = ""
         if "photo" in request.files:
             f = request.files["photo"]
             fname = secure_filename(f"{uuid.uuid4().hex}_{f.filename}")
@@ -293,20 +350,22 @@ def submit_report():
 
     else:
         data = request.get_json()
+
         reporter = data.get("reporter")
-        barangay = data.get("barangay")
-        municipality = data.get("municipality")
         province = data.get("province")
+        municipality = data.get("municipality")
+        barangay = data.get("barangay")
         severity = data.get("severity", "Low")
+
         lat = data.get("lat")
         lng = data.get("lng")
         photo = data.get("photo_url", "")
 
-    r = Report(
+    report = Report(
         reporter=reporter,
-        barangay=barangay,
-        municipality=municipality,
         province=province,
+        municipality=municipality,
+        barangay=barangay,
         severity=severity,
         lat=lat,
         lng=lng,
@@ -314,23 +373,31 @@ def submit_report():
         user_id=user_id,
     )
 
-    db.session.add(r)
+    db.session.add(report)
     db.session.commit()
 
-    return jsonify({"message": "Report submitted!", "id": r.id})
+    return jsonify({"message": "Report submitted!", "id": report.id})
 
 
 # -------------------------------------------------
-# DASHBOARD API — REPORT FILTERS
+# DASHBOARD API — FILTERED REPORTS
 # -------------------------------------------------
 @app.route("/api/reports")
 def get_reports():
+    province = request.args.get("province")
+    municipality = request.args.get("municipality")
     barangay = request.args.get("barangay")
     severity = request.args.get("severity")
     start_date = request.args.get("start_date")
     end_date = request.args.get("end_date")
 
     q = Report.query
+
+    if province and province != "All":
+        q = q.filter(Report.province == province)
+
+    if municipality and municipality != "All":
+        q = q.filter(Report.municipality == municipality)
 
     if barangay and barangay != "All":
         q = q.filter(Report.barangay == barangay)
@@ -350,9 +417,9 @@ def get_reports():
             "id": r.id,
             "date": r.date.strftime("%Y-%m-%d %H:%M"),
             "reporter": r.reporter,
-            "barangay": r.barangay,
-            "municipality": r.municipality,
             "province": r.province,
+            "municipality": r.municipality,
+            "barangay": r.barangay,
             "severity": r.severity,
             "status": r.status,
             "action_status": r.action_status,
@@ -364,8 +431,9 @@ def get_reports():
     ])
 
 
+
 # -------------------------------------------------
-# RUN APP (RENDER)
+# RUN
 # -------------------------------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
