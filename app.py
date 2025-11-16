@@ -18,7 +18,6 @@ from flask_jwt_extended import (
 )
 from flask_cors import CORS
 
-
 # -------------------------------------------------
 # APP INITIALIZATION
 # -------------------------------------------------
@@ -41,7 +40,6 @@ jwt = JWTManager(app)
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
-
 # -------------------------------------------------
 # DATABASE CONFIGURATION
 # -------------------------------------------------
@@ -59,7 +57,6 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
-
 # -------------------------------------------------
 # UPLOADS
 # -------------------------------------------------
@@ -68,9 +65,8 @@ os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
 ADMIN_CODE = os.environ.get("ADMIN_CODE", "GASSIGHT_ADMIN")
 
-
 # -------------------------------------------------
-# MODELS (FINAL — WITH 3-LEVEL CHAIN)
+# MODELS (WITH 3-LEVEL CHAIN)
 # -------------------------------------------------
 class Province(db.Model):
     __tablename__ = "provinces"
@@ -119,6 +115,7 @@ class Report(db.Model):
 
     reporter = db.Column(db.String(120))
 
+    # Stored as strings (coming from mobile)
     province = db.Column(db.String(120))
     municipality = db.Column(db.String(120))
     barangay = db.Column(db.String(120))
@@ -143,14 +140,12 @@ def load_user(user_id):
 with app.app_context():
     db.create_all()
 
-
 # -------------------------------------------------
 # STATIC (PWA)
 # -------------------------------------------------
 @app.route("/service-worker.js")
 def service_worker():
     return send_from_directory("static", "service-worker.js")
-
 
 # -------------------------------------------------
 # PAGE ROUTES
@@ -182,7 +177,7 @@ def login():
         return redirect(url_for("dashboard" if current_user.is_admin else "no_access"))
 
     if request.method == "POST":
-        username = request.form.get("username").strip()
+        username = request.form.get("username", "").strip()
         password = request.form.get("password")
 
         user = User.query.filter_by(username=username).first()
@@ -199,7 +194,7 @@ def login():
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
-        username = request.form.get("username").strip()
+        username = request.form.get("username", "").strip()
         password = request.form.get("password")
         full_name = request.form.get("full_name")
         email = request.form.get("email")
@@ -209,6 +204,10 @@ def register():
 
         if User.query.filter_by(username=username).first():
             flash("Username already exists.", "warning")
+            return render_template("register.html")
+
+        if email and User.query.filter_by(email=email).first():
+            flash("Email already exists.", "warning")
             return render_template("register.html")
 
         user = User(
@@ -235,9 +234,8 @@ def logout():
     logout_user()
     return redirect(url_for("login"))
 
-
 # -------------------------------------------------
-# API — LOCATION CHAIN
+# API — LOCATION CHAIN (USING MODELS)
 # -------------------------------------------------
 @app.route("/api/provinces")
 def api_provinces():
@@ -247,7 +245,7 @@ def api_provinces():
 
 @app.route("/api/municipalities")
 def api_municipalities():
-    province_id = request.args.get("province")
+    province_id = request.args.get("province", type=int)
     q = Municipality.query
     if province_id:
         q = q.filter_by(province_id=province_id)
@@ -257,20 +255,19 @@ def api_municipalities():
 
 @app.route("/api/barangays")
 def api_barangays():
-    municipality_id = request.args.get("municipality")
+    municipality_id = request.args.get("municipality", type=int)
     q = Barangay.query
     if municipality_id:
         q = q.filter_by(municipality_id=municipality_id)
     data = q.order_by(Barangay.name.asc()).all()
     return jsonify([{"id": b.id, "name": b.name} for b in data])
 
-
 # -------------------------------------------------
 # MOBILE API — REGISTER / LOGIN
 # -------------------------------------------------
 @app.route("/api/register", methods=["POST"])
 def api_register():
-    data = request.get_json()
+    data = request.get_json() or {}
 
     username = data.get("username", "").strip()
     password = data.get("password", "").strip()
@@ -283,7 +280,7 @@ def api_register():
     if User.query.filter_by(username=username).first():
         return jsonify({"error": "Username exists"}), 409
 
-    if User.query.filter_by(email=email).first():
+    if email and User.query.filter_by(email=email).first():
         return jsonify({"error": "Email exists"}), 409
 
     user = User(
@@ -304,7 +301,7 @@ def api_register():
 
 @app.route("/api/login", methods=["POST"])
 def api_login():
-    data = request.get_json()
+    data = request.get_json() or {}
     username = data.get("username", "").strip()
     password = data.get("password", "").strip()
 
@@ -319,7 +316,6 @@ def api_login():
         "refresh_token": create_refresh_token(identity=str(user.id))
     })
 
-
 # -------------------------------------------------
 # MOBILE API — SUBMIT REPORT
 # -------------------------------------------------
@@ -329,7 +325,7 @@ def submit_report():
     user_id = int(get_jwt_identity())
 
     # multipart (with photo)
-    if request.content_type.startswith("multipart/form-data"):
+    if request.content_type and request.content_type.startswith("multipart/form-data"):
         form = request.form
 
         reporter = form.get("reporter")
@@ -349,7 +345,7 @@ def submit_report():
             photo = f"/static/uploads/{fname}"
 
     else:
-        data = request.get_json()
+        data = request.get_json() or {}
 
         reporter = data.get("reporter")
         province = data.get("province")
@@ -378,37 +374,40 @@ def submit_report():
 
     return jsonify({"message": "Report submitted!", "id": report.id})
 
-
 # -------------------------------------------------
-# DASHBOARD API — FILTERED REPORTS
+# DASHBOARD API — FILTERED REPORTS (WITH PROVINCE / MUNICIPALITY)
 # -------------------------------------------------
 @app.route("/api/reports")
 def get_reports():
-    province = request.args.get("province")
-    municipality = request.args.get("municipality")
-    barangay = request.args.get("barangay")
+    # Name-based filters from dashboard.js
+    province_name = request.args.get("province")
+    municipality_name = request.args.get("municipality")
+    barangay_name = request.args.get("barangay")
     severity = request.args.get("severity")
     start_date = request.args.get("start_date")
     end_date = request.args.get("end_date")
 
     q = Report.query
 
-    if province and province != "All":
-        q = q.filter(Report.province == province)
+    if province_name and province_name != "All":
+        q = q.filter(Report.province == province_name)
 
-    if municipality and municipality != "All":
-        q = q.filter(Report.municipality == municipality)
+    if municipality_name and municipality_name != "All":
+        q = q.filter(Report.municipality == municipality_name)
 
-    if barangay and barangay != "All":
-        q = q.filter(Report.barangay == barangay)
+    if barangay_name and barangay_name != "All":
+        q = q.filter(Report.barangay == barangay_name)
 
     if severity and severity != "All":
         q = q.filter(Report.severity == severity)
 
     if start_date and end_date:
-        s = datetime.strptime(start_date, "%Y-%m-%d")
-        e = datetime.strptime(end_date, "%Y-%m-%d")
-        q = q.filter(Report.date >= s, Report.date <= e)
+        try:
+            s = datetime.strptime(start_date, "%Y-%m-%d")
+            e = datetime.strptime(end_date, "%Y-%m-%d")
+            q = q.filter(Report.date >= s, Report.date <= e)
+        except ValueError:
+            pass
 
     reports = q.order_by(Report.date.desc()).all()
 
@@ -425,12 +424,10 @@ def get_reports():
             "action_status": r.action_status,
             "photo": r.photo,
             "lat": r.lat,
-            "lng": r.lng
+            "lng": r.lng,
         }
         for r in reports
     ])
-
-
 
 # -------------------------------------------------
 # RUN
