@@ -22,6 +22,7 @@ from flask_jwt_extended import (
     jwt_required, get_jwt_identity, get_jwt
 )
 from flask_cors import CORS
+from sqlalchemy import text
 
 # optional Excel support
 try:
@@ -209,10 +210,9 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 
-
-from sqlalchemy import text
-
-# Create tables and run simple migrations
+# -------------------------------------------------
+# SIMPLE MIGRATIONS (SAFE, IGNORE IF ALREADY EXISTS)
+# -------------------------------------------------
 with app.app_context():
     db.create_all()
 
@@ -245,14 +245,13 @@ with app.app_context():
     db.session.commit()
 
 
-
 # -------------------------------------------------
 # HELPERS
 # -------------------------------------------------
-def sanitize(text):
-    if text is None:
+def sanitize(value):
+    if value is None:
         return None
-    return text.strip()
+    return value.strip()
 
 
 def allowed_image(filename: str) -> bool:
@@ -330,8 +329,9 @@ def create_location_notifications(report: Report):
     if not farmers:
         return
 
-    title = f"High {report.infestation_type or 'infestation'} in {report.barangay or report.municipality or report.province}"
-    body = f"A {report.severity} level report was submitted in {report.barangay or report.municipality or report.province}."
+    location_label = report.barangay or report.municipality or report.province
+    title = f"High {report.infestation_type or 'infestation'} in {location_label}"
+    body = f"A {report.severity} level report was submitted in {location_label}."
 
     for farmer in farmers:
         notif = Notification(
