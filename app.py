@@ -16,8 +16,6 @@ from flask_jwt_extended import (
 )
 from flask_cors import CORS
 
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 from flask_talisman import Talisman
 
 # -------------------------------------------------
@@ -27,8 +25,7 @@ app = Flask(__name__, static_folder="static", template_folder="templates")
 
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-limiter = Limiter(key_func=get_remote_address)
-limiter.init_app(app)
+
 
 Talisman(app, content_security_policy=None)
 
@@ -181,7 +178,6 @@ def dashboard():
 # MOBILE API — SIGNUP / LOGIN
 # -------------------------------------------------
 @app.route("/api/signup", methods=["POST"])
-@limiter.limit("5/minute")
 def api_signup():
     data = request.get_json() or {}
     username = sanitize_text(data.get("username", "").strip())
