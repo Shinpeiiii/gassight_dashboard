@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Report Summary - Printable View</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 30px;
+            color: #333;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 5px;
+            color: #1a4d2e;
+        }
+
+        h3 {
+            text-align: center;
+            color: #444;
+            margin-top: 0;
+        }
+
+        .controls {
+            margin-bottom: 20px;
+            text-align: right;
+        }
+
+        .controls button {
+            background: #1a4d2e;
+            padding: 10px 16px;
+            border: none;
+            border-radius: 6px;
+            color: white;
+            font-size: 15px;
+            cursor: pointer;
+        }
+
+        .controls button:hover {
+            background: #145c2b;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+            margin-top: 15px;
+        }
+
+        th {
+            background: #1a4d2e;
+            color: white;
+            padding: 10px;
+            border: 1px solid #bbb;
+        }
+
+        td {
+            padding: 8px;
+            border: 1px solid #ccc;
+        }
+
+        tr:nth-child(even) {
+            background: #f5f5f5;
+        }
+
+        tr:nth-child(odd) {
+            background: #ffffff;
+        }
+
+        .photo-thumb {
+            width: 70px;
+            height: 70px;
+            object-fit: cover;
+            border-radius: 4px;
+        }
+
+        .footer-note {
+            margin-top: 20px;
+            text-align: center;
+            font-size: 12px;
+            color: #777;
+        }
+
+        /* Hide buttons when printing */
+        @media print {
+            .controls {
+                display: none;
+            }
+            body {
+                margin: 0;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>GASSIGHT REPORT SUMMARY</h1>
+    <h3>Filtered Report Results</h3>
+
+    <div class="controls">
+        <button onclick="window.print()">🖨 Print / Save as PDF</button>
+    </div>
+
+    <table>
+        <thead>
+        <tr>
+            <th>ID</th>
+            <th>Date</th>
+            <th>Reporter</th>
+            <th>Province</th>
+            <th>Municipality</th>
+            <th>Barangay</th>
+            <th>Severity</th>
+            <th>Infestation Type</th>
+            <th>Status</th>
+            <th>Action Status</th>
+            <th>Latitude</th>
+            <th>Longitude</th>
+            <th>Photo</th>
+        </tr>
+        </thead>
+
+        <tbody>
+        {% for r in reports %}
+        <tr>
+            <td>{{ r.id }}</td>
+            <td>{{ r.date.strftime("%Y-%m-%d %H:%M") if r.date else "" }}</td>
+            <td>{{ r.reporter }}</td>
+            <td>{{ r.province }}</td>
+            <td>{{ r.municipality }}</td>
+            <td>{{ r.barangay }}</td>
+            <td>{{ r.severity }}</td>
+            <td>{{ r.infestation_type }}</td>
+            <td>{{ r.status }}</td>
+            <td>{{ r.action_status }}</td>
+            <td>{{ r.lat }}</td>
+            <td>{{ r.lng }}</td>
+            <td>
+                {% if r.photo %}
+                    <img class="photo-thumb" src="{{ r.photo }}" alt="Photo">
+                {% else %}
+                    -
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="footer-note">
+        Printed via GASSIGHT System — {{ now() }}
+    </div>
+
+</body>
+</html>
