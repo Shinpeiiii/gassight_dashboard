@@ -1,6 +1,6 @@
 /**************************************************
- * GASsight — Dashboard.js (Final Working Version)
- * Fully compatible with: dashboard.html + app.py
+ * GASsight — Dashboard.js (Final Stable Version)
+ * Compatible with: dashboard.html + app.py
  **************************************************/
 
 let map, markersLayer, heatLayer;
@@ -13,7 +13,7 @@ let severityChart, barangayChart, trendChart;
 ============================ */
 async function fetchJSON(url) {
     try {
-        const res = await fetch(url);
+        const res = await fetch(url, { cache: "no-store" });
         if (!res.ok) throw new Error("HTTP " + res.status);
         return await res.json();
     } catch (err) {
@@ -23,11 +23,10 @@ async function fetchJSON(url) {
 }
 
 /* ============================
-   LOAD REPORTS FROM BACKEND
+   LOAD REPORTS
 ============================ */
-async function loadReports(filters = null) {
+async function loadReports(filters = "") {
     let url = "/api/reports";
-
     if (filters) url += "?" + filters;
 
     const data = await fetchJSON(url);
@@ -35,6 +34,7 @@ async function loadReports(filters = null) {
 
     allReports = data;
 
+    populateBarangayDropdown(data);
     renderKPIs(data);
     renderTable(data);
     renderMap(data);
@@ -43,6 +43,20 @@ async function loadReports(filters = null) {
 
     document.getElementById("lastUpdate").innerText =
         new Date().toLocaleTimeString();
+}
+
+/* ============================
+   AUTO POPULATE BARANGAY FILTER
+============================ */
+function populateBarangayDropdown(data) {
+    const sel = document.getElementById("barangayFilter");
+
+    const barangays = [...new Set(data.map(r => r.barangay).filter(Boolean))];
+
+    sel.innerHTML = `<option value="All">All</option>`;
+    barangays.forEach(b => {
+        sel.innerHTML += `<option value="${b}">${b}</option>`;
+    });
 }
 
 /* ============================
@@ -70,17 +84,14 @@ function applyFilters() {
 function renderKPIs(data) {
     document.getElementById("totalSightings").innerText = data.length;
 
-    // Active Hotspots = # of barangays where severity = High
     const hotspotBrgys = new Set(
         data.filter(r => r.severity === "High").map(r => r.barangay)
     );
     document.getElementById("activeHotspots").innerText = hotspotBrgys.size;
 
-    // Active Reporters
     const reporters = new Set(data.map(r => r.reporter));
     document.getElementById("activeReporters").innerText = reporters.size;
 
-    // Avg Response Time (not implemented → always 0)
     document.getElementById("avgResponse").innerText = "0";
 }
 
@@ -100,11 +111,13 @@ function renderTable(data) {
             <td>${r.reporter || ""}</td>
             <td>${r.barangay || ""}, ${r.municipality || ""}, ${r.province || ""}</td>
             <td>${r.severity}</td>
-            <td>${
-                r.photo
-                    ? `<img src="${r.photo}" style="width:60px;height:60px;object-fit:cover;border-radius:6px;">`
-                    : `<span class="text-muted">No photo</span>`
-            }</td>
+            <td>
+                ${
+                    r.photo
+                        ? `<img src="${r.photo}" style="width:60px;height:60px;object-fit:cover;border-radius:6px;">`
+                        : `<span class="text-muted">No photo</span>`
+                }
+            </td>
             <td>${r.status}</td>
             <td>${r.action_status}</td>
         `;
@@ -138,8 +151,9 @@ function renderMap(data) {
     data.forEach(r => {
         if (!r.lat || !r.lng) return;
 
-        let sevWeight = r.severity === "High" ? 1 :
-                        r.severity === "Moderate" ? 0.6 : 0.3;
+        const sevWeight = r.severity === "High" ? 1 :
+                          r.severity === "Moderate" ? 0.6 : 0.3;
+
         heatPoints.push([r.lat, r.lng, sevWeight]);
 
         const color =
@@ -147,7 +161,7 @@ function renderMap(data) {
             r.severity === "Moderate" ? "orange" : "green";
 
         L.circleMarker([r.lat, r.lng], {
-            radius: 6,
+            radius: 7,
             color,
             fillColor: color,
             fillOpacity: 0.7
@@ -158,12 +172,13 @@ function renderMap(data) {
 
     if (heatPoints.length) {
         heatLayer = L.heatLayer(heatPoints, {
-            radius: 30,
-            blur: 20,
+            radius: 28,
+            blur: 18,
             maxZoom: 18,
             gradient: {
                 0.2: "lime",
-                0.6: "orange",
+                0.5: "yellow",
+                0.8: "orange",
                 1.0: "red"
             }
         }).addTo(map);
@@ -174,16 +189,13 @@ function renderMap(data) {
    CHARTS
 ============================ */
 function renderCharts(data) {
-    // destroy old charts
     if (severityChart) severityChart.destroy();
     if (barangayChart) barangayChart.destroy();
     if (trendChart) trendChart.destroy();
 
-    // severity chart
-    const sevCounts = {};
-    data.forEach(r => {
-        sevCounts[r.severity] = (sevCounts[r.severity] || 0) + 1;
-    });
+    /* --- Severity --- */
+    const sevCounts = { Low: 0, Moderate: 0, High: 0 };
+    data.forEach(r => sevCounts[r.severity] = (sevCounts[r.severity] || 0) + 1);
 
     severityChart = new Chart(document.getElementById("severityChart"), {
         type: "pie",
@@ -196,9 +208,10 @@ function renderCharts(data) {
         }
     });
 
-    // barangay chart
+    /* --- Barangay --- */
     const brgyCounts = {};
     data.forEach(r => {
+        if (!r.barangay) return;
         brgyCounts[r.barangay] = (brgyCounts[r.barangay] || 0) + 1;
     });
 
@@ -211,10 +224,11 @@ function renderCharts(data) {
                 data: Object.values(brgyCounts),
                 backgroundColor: "#42a5f5"
             }]
-        }
+        },
+        options: { scales: { y: { beginAtZero: true } } }
     });
 
-    // trend chart
+    /* --- Trend Chart --- */
     const dayCounts = {};
     data.forEach(r => {
         const day = r.date.split(" ")[0];
@@ -236,7 +250,7 @@ function renderCharts(data) {
 }
 
 /* ============================
-   HIGH SEVERITY ALERT
+   HIGH ALERT
 ============================ */
 function updateHighAlert(data) {
     const alert = document.getElementById("alertIndicator");
@@ -245,10 +259,11 @@ function updateHighAlert(data) {
 
     if (highs.length === 0) {
         alert.classList.add("d-none");
-    } else {
-        alert.classList.remove("d-none");
-        alert.onclick = () => showHighReports(highs);
+        return;
     }
+
+    alert.classList.remove("d-none");
+    alert.onclick = () => showHighReports(highs);
 }
 
 /* ============================
@@ -258,25 +273,21 @@ window.addEventListener("load", () => {
     initMap();
     loadReports();
 
-    // filter button
     document.getElementById("filterBtn").onclick = applyFilters;
 
-    // dropdown changes also trigger filter
     ["barangayFilter", "severityFilter", "startDate", "endDate"].forEach(id => {
         document.getElementById(id).onchange = applyFilters;
     });
 
-    // manual refresh
-    document.getElementById("manualRefresh").onclick = () =>
-        loadReports();
+    document.getElementById("manualRefresh").onclick = () => loadReports();
 
-    // auto refresh selector
     document.getElementById("refreshInterval").onchange = function () {
         const val = this.value;
 
         if (window.refreshTimer) clearInterval(window.refreshTimer);
 
         if (val === "off") return;
+
         window.refreshTimer = setInterval(() => loadReports(), val * 1000);
     };
 });
