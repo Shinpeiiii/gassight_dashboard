@@ -1,91 +1,90 @@
-const CACHE_NAME = "gassight-cache-v6";
-const OFFLINE_FALLBACK = "/offline";
+// static/service-worker.js
+
+const CACHE_NAME = "gassight-cache-v7";
+
+// We serve this built-in fallback page instead of your missing /offline route
+const OFFLINE_FALLBACK = "/offline.html";
 
 const OFFLINE_URLS = [
   "/",
-  "/dashboard", // ✅ cache admin dashboard
+  "/login",
+  "/dashboard",
   OFFLINE_FALLBACK,
   "/static/manifest.json",
   "/static/icons/icon-192.png",
-  "/static/icons/icon-512.png",
-  "https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css",
-  "https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js",
-  "https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js",
-  "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
-  "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
-  "https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"
+  "/static/icons/icon-512.png"
 ];
 
+// INSTALL — PRE-CACHE CORE FILES
 self.addEventListener("install", (event) => {
-  console.log("[Service Worker] Installing...");
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(OFFLINE_URLS)));
+  console.log("[SW] Installing...");
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(OFFLINE_URLS))
+  );
+  self.skipWaiting();
 });
 
+// ACTIVATE — REMOVE OLD CACHES
 self.addEventListener("activate", (event) => {
-  console.log("[Service Worker] Activating...");
+  console.log("[SW] Activating...");
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    )
   );
-
-  // 🔄 Refresh open tabs when new SW activates
-  self.clients.matchAll({ includeUncontrolled: true }).then((clients) => {
-    clients.forEach((client) => client.navigate(client.url));
-  });
+  self.clients.claim();
 });
 
+// FETCH HANDLER
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Ignore Chrome extension / dev requests
-  if (url.origin.includes("chrome-extension")) return;
+  // Ignore extension requests
+  if (url.protocol.startsWith("chrome-extension")) return;
+  if (request.method !== "GET") return;
 
-  // ✅ Cache the /api/reports endpoint (for offline dashboard data)
+  // ---- API REPORTS CACHE ----
   if (url.pathname.startsWith("/api/reports")) {
     event.respondWith(
       fetch(request)
-        .then((response) => {
-          // store latest reports in cache
-          const clone = response.clone();
+        .then((res) => {
+          const clone = res.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-          return response;
+          return res;
         })
-        .catch(() => {
-          // when offline, use cached data
-          return caches.match(request).then((res) => res || caches.match(OFFLINE_FALLBACK));
-        })
+        .catch(() => caches.match(request))
     );
     return;
   }
 
-  // 🚫 Don’t cache report submissions or status updates
+  // ---- Don't cache write API routes ----
   if (url.pathname.startsWith("/api/")) {
     event.respondWith(fetch(request).catch(() => caches.match(OFFLINE_FALLBACK)));
     return;
   }
 
-  // ✅ Cache-first for static files and dashboard pages
+  // ---- Cache-first for static files ----
   event.respondWith(
     caches.match(request).then((cached) => {
-      return (
-        cached ||
-        fetch(request)
-          .then((response) => {
-            if (request.method === "GET" && response.status === 200) {
-              const clone = response.clone();
-              caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-            }
-            return response;
-          })
-          .catch(() => {
-            if (request.mode === "navigate") {
-              return caches.match(OFFLINE_FALLBACK);
-            }
-          })
-      );
+      if (cached) {
+        return cached;
+      }
+
+      return fetch(request)
+        .then((res) => {
+          if (res.status === 200) {
+            const clone = res.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          }
+          return res;
+        })
+        .catch(() => {
+          // If navigation fails → show offline page
+          if (request.mode === "navigate") {
+            return caches.match(OFFLINE_FALLBACK);
+          }
+        });
     })
   );
 });
-
