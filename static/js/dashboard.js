@@ -1,7 +1,12 @@
 /**************************************************
- * GASsight — Dashboard.js (Fixed Final Version)
- * Compatible with dashboard.html + app.py
- * 3-level filters: Province → Municipality → Barangay
+ * GASsight — Dashboard.js (Final, Clean)
+ * Works with:
+ *  - app.py (Province / Municipality / Barangay models)
+ *  - dashboard.html
+ * Features:
+ *  - 3-level filters (Province → Municipality → Barangay)
+ *  - Auto zoom map when province/municipality selected
+ *  - Heatmap + markers + charts + KPIs
  **************************************************/
 
 let map, markersLayer, heatLayer;
@@ -28,10 +33,10 @@ async function fetchJSON(url) {
 ============================ */
 window.addEventListener("load", () => {
   initMap();
-  initLocationFilters();
+  loadProvinceDropdown();
   loadReports(); // full report load
 
-  // filter events
+  // Filter events (severity + date range)
   ["severityFilter", "startDate", "endDate"].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.onchange = applyFilters;
@@ -59,40 +64,49 @@ window.addEventListener("load", () => {
    - /api/provinces          -> [{id, name}]
    - /api/municipalities     -> [{id, name}]  (requires ?province=ID)
    - /api/barangays          -> [{id, name}]  (requires ?municipality=ID)
-   We store both name (value) and id (data-id) on each <option>.
+   We store value = name (for filtering by string)
+   and data-id = id (for loading children).
 =========================================================================== */
-async function initLocationFilters() {
-  const container = document.querySelector(".card-body.row.g-3.align-items-end");
+async function loadProvinceDropdown() {
+  const container = document.querySelector(".card-body.row.g-3.align-items-end") ||
+                    document.querySelector(".card-body.row");
+
   if (!container) return;
 
-  // Province
-  if (!document.getElementById("provinceFilter")) {
-    container.insertAdjacentHTML(
-      "afterbegin",
-      `
-      <div class="col-md-3">
-        <label class="form-label fw-semibold">Province</label>
-        <select id="provinceFilter" class="form-select">
-          <option value="All">All</option>
-        </select>
-      </div>
-      `
-    );
-  }
-
-  // Municipality
+  // Municipality dropdown (insert before Barangay)
   if (!document.getElementById("municipalityFilter")) {
-    container.insertAdjacentHTML(
-      "afterbegin",
-      `
+    const barangayDiv = document.getElementById("barangayFilter")?.closest(".col-md-3");
+    const html = `
       <div class="col-md-3">
         <label class="form-label fw-semibold">Municipality</label>
         <select id="municipalityFilter" class="form-select">
           <option value="All">All</option>
         </select>
       </div>
-      `
-    );
+    `;
+    if (barangayDiv) {
+      barangayDiv.insertAdjacentHTML("beforebegin", html);
+    } else {
+      container.insertAdjacentHTML("afterbegin", html);
+    }
+  }
+
+  // Province dropdown (insert before Municipality)
+  if (!document.getElementById("provinceFilter")) {
+    const muniDiv = document.getElementById("municipalityFilter")?.closest(".col-md-3");
+    const html = `
+      <div class="col-md-3">
+        <label class="form-label fw-semibold">Province</label>
+        <select id="provinceFilter" class="form-select">
+          <option value="All">All</option>
+        </select>
+      </div>
+    `;
+    if (muniDiv) {
+      muniDiv.insertAdjacentHTML("beforebegin", html);
+    } else {
+      container.insertAdjacentHTML("afterbegin", html);
+    }
   }
 
   const provinceSel = document.getElementById("provinceFilter");
@@ -101,7 +115,7 @@ async function initLocationFilters() {
 
   if (!provinceSel || !municipalitySel || !barangaySel) return;
 
-  // Load provinces from backend
+  // Load provinces
   const provinces = await fetchJSON("/api/provinces");
   provinceSel.innerHTML = `<option value="All">All</option>`;
 
@@ -113,8 +127,9 @@ async function initLocationFilters() {
     });
   }
 
-  // Province change → load municipalities
+  // Province changed
   provinceSel.onchange = async () => {
+    const provinceName = provinceSel.value;
     const opt = provinceSel.selectedOptions[0];
     const provinceId = opt ? opt.dataset.id : null;
 
@@ -122,32 +137,31 @@ async function initLocationFilters() {
     municipalitySel.innerHTML = `<option value="All">All</option>`;
     barangaySel.innerHTML = `<option value="All">All</option>`;
 
-    if (!provinceId || provinceSel.value === "All") {
-      applyFilters();
-      return;
+    if (provinceName !== "All" && provinceId) {
+      await loadMunicipalities(provinceId);
+      autoZoomToLocation("province", provinceName);
     }
 
-    await loadMunicipalities(provinceId);
     applyFilters();
   };
 
-  // Municipality change → load barangays
+  // Municipality changed
   municipalitySel.onchange = async () => {
+    const municipalityName = municipalitySel.value;
     const opt = municipalitySel.selectedOptions[0];
     const municipalityId = opt ? opt.dataset.id : null;
 
     barangaySel.innerHTML = `<option value="All">All</option>`;
 
-    if (!municipalityId || municipalitySel.value === "All") {
-      applyFilters();
-      return;
+    if (municipalityName !== "All" && municipalityId) {
+      await loadBarangays(municipalityId);
+      autoZoomToLocation("municipality", municipalityName);
     }
 
-    await loadBarangays(municipalityId);
     applyFilters();
   };
 
-  // Barangay change → just filter
+  // Barangay change
   barangaySel.onchange = applyFilters;
 }
 
@@ -256,7 +270,7 @@ function renderKPIs(data) {
   const reporters = new Set(data.map((r) => r.reporter));
   if (activeReporters) activeReporters.innerText = reporters.size;
 
-  if (avgResponse) avgResponse.innerText = "0"; // TODO: calculate if you add response timestamps
+  if (avgResponse) avgResponse.innerText = "0"; // placeholder for future
 }
 
 /* ============================
@@ -345,6 +359,40 @@ function renderMap(data) {
       gradient: { 0.2: "lime", 0.5: "yellow", 1: "red" },
     }).addTo(map);
   }
+}
+
+/* ============================
+   AUTO ZOOM TO SELECTED LOCATION
+============================ */
+function autoZoomToLocation(type, value) {
+  if (!map || !allReports || allReports.length === 0) return;
+
+  let filtered = [];
+
+  if (type === "province") {
+    filtered = allReports.filter((r) => r.province === value);
+  } else if (type === "municipality") {
+    filtered = allReports.filter((r) => r.municipality === value);
+  }
+
+  if (filtered.length === 0) return;
+
+  const latValues = filtered.map((r) => r.lat).filter((v) => v !== null && v !== undefined);
+  const lngValues = filtered.map((r) => r.lng).filter((v) => v !== null && v !== undefined);
+
+  if (!latValues.length || !lngValues.length) return;
+
+  const minLat = Math.min(...latValues);
+  const maxLat = Math.max(...latValues);
+  const minLng = Math.min(...lngValues);
+  const maxLng = Math.max(...lngValues);
+
+  const bounds = L.latLngBounds(
+    L.latLng(minLat, minLng),
+    L.latLng(maxLat, maxLng)
+  );
+
+  map.fitBounds(bounds, { padding: [30, 30] });
 }
 
 /* ============================
