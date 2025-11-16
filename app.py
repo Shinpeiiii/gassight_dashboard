@@ -1,6 +1,7 @@
 import os
 import uuid
 from datetime import datetime, timedelta
+
 from flask import (
     Flask, render_template, jsonify, send_from_directory,
     request, redirect, url_for, flash
@@ -28,6 +29,7 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-key")
 app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "jwt-secret")
 
+# cookies (for web login)
 app.config["SESSION_COOKIE_SECURE"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "None"
 app.config["REMEMBER_COOKIE_SECURE"] = True
@@ -66,7 +68,7 @@ os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 ADMIN_CODE = os.environ.get("ADMIN_CODE", "GASSIGHT_ADMIN")
 
 # -------------------------------------------------
-# MODELS (WITH 3-LEVEL CHAIN)
+# MODELS
 # -------------------------------------------------
 class Province(db.Model):
     __tablename__ = "provinces"
@@ -93,6 +95,8 @@ class Barangay(db.Model):
 
 
 class User(db.Model, UserMixin):
+    __tablename__ = "user"
+
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
@@ -102,20 +106,22 @@ class User(db.Model, UserMixin):
     address = db.Column(db.String(255))
     is_admin = db.Column(db.Boolean, default=False)
 
-    def set_password(self, pw):
+    def set_password(self, pw: str):
         self.password_hash = generate_password_hash(pw)
 
-    def check_password(self, pw):
+    def check_password(self, pw: str) -> bool:
         return check_password_hash(self.password_hash, pw)
 
 
 class Report(db.Model):
+    __tablename__ = "report"
+
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.DateTime, default=datetime.utcnow)
 
     reporter = db.Column(db.String(120))
 
-    # Stored as strings (coming from mobile)
+    # stored as text (from mobile)
     province = db.Column(db.String(120))
     municipality = db.Column(db.String(120))
     barangay = db.Column(db.String(120))
@@ -125,20 +131,37 @@ class Report(db.Model):
     action_status = db.Column(db.String(50), default="Not Resolved")
 
     photo = db.Column(db.String(255))
-    lat = db.Column(db.Float)
-    lng = db.Column(db.Float)
+
+    # ✅ GEO-TAGGING COLUMNS
+    lat = db.Column(db.Float)   # latitude
+    lng = db.Column(db.Float)   # longitude
 
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
-
 
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-
-# Create all tables
+# Create tables (for dev / SQLite)
 with app.app_context():
     db.create_all()
+    # --- AUTO DATABASE MIGRATION FOR LAT/LNG (runs once) ---
+with app.app_context():
+    try:
+        db.session.execute("ALTER TABLE report ADD COLUMN lat DOUBLE PRECISION;")
+        print("✔ Added column: lat")
+    except Exception as e:
+        print("ℹ lat column already exists or could not be added:", e)
+
+    try:
+        db.session.execute("ALTER TABLE report ADD COLUMN lng DOUBLE PRECISION;")
+        print("✔ Added column: lng")
+    except Exception as e:
+        print("ℹ lng column already exists or could not be added:", e)
+
+    db.session.commit()
+# ---------------------------------------------------------
+
 
 # -------------------------------------------------
 # STATIC (PWA)
@@ -147,8 +170,9 @@ with app.app_context():
 def service_worker():
     return send_from_directory("static", "service-worker.js")
 
+
 # -------------------------------------------------
-# PAGE ROUTES
+# PAGE ROUTES (ADMIN WEB)
 # -------------------------------------------------
 @app.route("/")
 def home():
@@ -235,7 +259,7 @@ def logout():
     return redirect(url_for("login"))
 
 # -------------------------------------------------
-# API — LOCATION CHAIN (USING MODELS)
+# API — LOCATION (FOR DASHBOARD FILTER DROPDOWNS)
 # -------------------------------------------------
 @app.route("/api/provinces")
 def api_provinces():
@@ -263,10 +287,50 @@ def api_barangays():
     return jsonify([{"id": b.id, "name": b.name} for b in data])
 
 # -------------------------------------------------
-# MOBILE API — REGISTER / LOGIN
+# MOBILE API — SIGNUP / LOGIN / TOKEN CHECK
 # -------------------------------------------------
+@app.route("/api/signup", methods=["POST"])
+def api_signup():
+    """
+    Used by Flutter SignupScreen.
+    Body JSON: {username, password}
+    Returns tokens on success.
+    """
+    data = request.get_json() or {}
+
+    username = data.get("username", "").strip()
+    password = data.get("password", "").strip()
+
+    if not username or not password:
+        return jsonify({"error": "Username and password required"}), 400
+
+    if User.query.filter_by(username=username).first():
+        return jsonify({"error": "Username exists"}), 409
+
+    user = User(username=username)
+    user.set_password(password)
+
+    db.session.add(user)
+    db.session.commit()
+
+    access_token = create_access_token(identity=str(user.id))
+    refresh_token = create_refresh_token(identity=str(user.id))
+
+    return jsonify({
+        "message": "Signup success",
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "username": username,
+    }), 200
+
+
 @app.route("/api/register", methods=["POST"])
-def api_register():
+def api_register_legacy():
+    """
+    Original mobile register endpoint (kept for compatibility).
+    Body JSON: {username, password, fullName, email, contact, address, adminCode}
+    Does NOT return tokens.
+    """
     data = request.get_json() or {}
 
     username = data.get("username", "").strip()
@@ -301,6 +365,11 @@ def api_register():
 
 @app.route("/api/login", methods=["POST"])
 def api_login():
+    """
+    Used by Flutter LoginScreen.
+    Body JSON: {username, password}
+    Returns: {message, access_token, refresh_token}
+    """
     data = request.get_json() or {}
     username = data.get("username", "").strip()
     password = data.get("password", "").strip()
@@ -313,15 +382,33 @@ def api_login():
     return jsonify({
         "message": "Login success",
         "access_token": create_access_token(identity=str(user.id)),
-        "refresh_token": create_refresh_token(identity=str(user.id))
-    })
+        "refresh_token": create_refresh_token(identity=str(user.id)),
+        "username": user.username,
+    }), 200
+
+
+@app.route("/api/check_token", methods=["GET"])
+@jwt_required()
+def api_check_token():
+    """
+    Used by Flutter _verifyToken() to auto-login if token still valid.
+    """
+    user_id = get_jwt_identity()
+    return jsonify({"valid": True, "user_id": int(user_id)}), 200
 
 # -------------------------------------------------
-# MOBILE API — SUBMIT REPORT
+# MOBILE API — SUBMIT REPORT (GEO-TAGGED)
 # -------------------------------------------------
 @app.route("/api/report", methods=["POST"])
 @jwt_required()
 def submit_report():
+    """
+    Accepts both:
+    - multipart/form-data (with optional photo)
+    - application/json (offline sync)
+    Expected fields:
+      reporter, province, municipality, barangay, severity, lat, lng
+    """
     user_id = int(get_jwt_identity())
 
     # multipart (with photo)
@@ -334,17 +421,23 @@ def submit_report():
         barangay = form.get("barangay")
         severity = form.get("severity", "Low")
 
-        lat = float(form.get("lat"))
-        lng = float(form.get("lng"))
+        try:
+            lat = float(form.get("lat")) if form.get("lat") else None
+            lng = float(form.get("lng")) if form.get("lng") else None
+        except (TypeError, ValueError):
+            lat = None
+            lng = None
 
         photo = ""
         if "photo" in request.files:
             f = request.files["photo"]
-            fname = secure_filename(f"{uuid.uuid4().hex}_{f.filename}")
-            f.save(os.path.join(app.config["UPLOAD_FOLDER"], fname))
-            photo = f"/static/uploads/{fname}"
+            if f and f.filename:
+                fname = secure_filename(f"{uuid.uuid4().hex}_{f.filename}")
+                f.save(os.path.join(app.config["UPLOAD_FOLDER"], fname))
+                photo = f"/static/uploads/{fname}"
 
     else:
+        # JSON body (offline sync)
         data = request.get_json() or {}
 
         reporter = data.get("reporter")
@@ -355,6 +448,13 @@ def submit_report():
 
         lat = data.get("lat")
         lng = data.get("lng")
+        try:
+            lat = float(lat) if lat is not None else None
+            lng = float(lng) if lng is not None else None
+        except (TypeError, ValueError):
+            lat = None
+            lng = None
+
         photo = data.get("photo_url", "")
 
     report = Report(
@@ -372,14 +472,18 @@ def submit_report():
     db.session.add(report)
     db.session.commit()
 
-    return jsonify({"message": "Report submitted!", "id": report.id})
+    return jsonify({
+        "message": "Report submitted successfully",
+        "id": report.id,
+        "severity": report.severity,
+    }), 201
 
 # -------------------------------------------------
-# DASHBOARD API — FILTERED REPORTS (WITH PROVINCE / MUNICIPALITY)
+# DASHBOARD API — FILTERED REPORTS
 # -------------------------------------------------
 @app.route("/api/reports")
 def get_reports():
-    # Name-based filters from dashboard.js
+    # Filters from dashboard.js
     province_name = request.args.get("province")
     municipality_name = request.args.get("municipality")
     barangay_name = request.args.get("barangay")
