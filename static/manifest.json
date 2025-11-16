@@ -1,7 +1,7 @@
 {
   "name": "GASsight Dashboard",
   "short_name": "GASsight",
-  "start_url": "/loading",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#dc3545",
   "theme_color": "#dc3545",
