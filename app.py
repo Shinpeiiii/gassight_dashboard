@@ -5,6 +5,17 @@ import io
 import csv
 import random
 
+import psycopg2
+
+def get_db():
+    return psycopg2.connect(
+        host="localhost",
+        database="your_database",
+        user="your_username",
+        password="your_password"
+    )
+
+
 import requests
 from flask import (
     Flask, render_template, jsonify, send_from_directory,
@@ -81,6 +92,48 @@ app.config["SQLALCHEMY_DATABASE_URI"] = db_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
+
+import click
+from flask import Flask
+from datetime import datetime
+
+# Add this under your existing DB connection
+@app.cli.command("seed-demo")
+def seed_demo():
+    """Seed demo reports into the database."""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    demo_reports = [
+        ("Stephen", "Ilocos Sur", "Vigan City", "Barangay I", "High",
+         "Golden Apple Snail (GAS)", 17.5747, 120.3869,
+         "Severe snail infestation near rice fields.",
+         datetime.now()),
+
+        ("Maria", "Ilocos Sur", "Santa", "Barangay Cabaroan", "Moderate",
+         "Brown Plant Hopper (BPH)", 17.5400, 120.3800,
+         "Crop damage observed in multiple paddies.",
+         datetime.now()),
+
+        ("Juan", "Ilocos Sur", "Candon City", "Barangay Tablac", "Low",
+         "Rice Black Bug (RBB)", 17.2000, 120.4500,
+         "Minor bug presence noted.",
+         datetime.now()),
+    ]
+
+    cursor.executemany("""
+        INSERT INTO reports (
+            reporter, province, municipality, barangay,
+            severity, infestation_type, lat, lng,
+            description, timestamp
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, demo_reports)
+
+    conn.commit()
+    conn.close()
+
+    click.echo("✔ Demo reports inserted successfully!")
+
 
 # =================================================
 # UPLOADS
@@ -205,6 +258,45 @@ class FcmToken(db.Model):
     token = db.Column(db.String(512), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_seen = db.Column(db.DateTime, default=datetime.utcnow)
+
+@app.route("/import_demo_reports")
+def import_demo_reports():
+    import json, os
+    from flask import jsonify
+
+    path = os.path.join(app.instance_path, "demo_reports.json")
+
+    if not os.path.exists(path):
+        return jsonify({"error": "demo_reports.json not found in instance/"}), 404
+
+    with open(path, "r") as f:
+        reports = json.load(f)
+
+    for r in reports:
+        db.execute(
+            """
+            INSERT INTO reports
+            (reporter, province, municipality, barangay, severity,
+            infestation_type, lat, lng, description, gps_metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                r["reporter"],
+                r["province"],
+                r["municipality"],
+                r["barangay"],
+                r["severity"],
+                r["infestation_type"],
+                r["lat"],
+                r["lng"],
+                r["description"],
+                json.dumps(r["gps_metadata"])
+            ),
+        )
+    db.commit()
+
+    return jsonify({"status": "ok", "inserted": len(reports)})
+
 
 
 @login_manager.user_loader
