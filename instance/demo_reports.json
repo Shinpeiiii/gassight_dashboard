@@ -1,0 +1,242 @@
+[
+  {
+    "reporter": "DemoUser1",
+    "province": "Ilocos Sur",
+    "municipality": "Vigan City",
+    "barangay": "Pantay Daya",
+    "severity": "Moderate",
+    "infestation_type": "Golden Apple Snail (GAS)",
+    "lat": 17.5741,
+    "lng": 120.3869,
+    "description": "Snail activity observed near irrigation canal.",
+    "gps_metadata": {
+      "lat": 17.5741,
+      "lng": 120.3869,
+      "timestamp": "2025-01-10T08:45:00Z"
+    }
+  },
+  {
+    "reporter": "DemoUser2",
+    "province": "Ilocos Sur",
+    "municipality": "Caoayan",
+    "barangay": "Don Alejandro Quirol",
+    "severity": "High",
+    "infestation_type": "Rice Black Bug (RBB)",
+    "lat": 17.5643,
+    "lng": 120.3794,
+    "description": "Heavy RBB presence in rice paddies.",
+    "gps_metadata": {
+      "lat": 17.5643,
+      "lng": 120.3794,
+      "timestamp": "2025-01-09T14:22:00Z"
+    }
+  },
+  {
+    "reporter": "DemoUser3",
+    "province": "Ilocos Sur",
+    "municipality": "Bantay",
+    "barangay": "Cabaroan",
+    "severity": "Low",
+    "infestation_type": "Golden Apple Snail (GAS)",
+    "lat": 17.5857,
+    "lng": 120.3881,
+    "description": "Few snails detected in drainage area.",
+    "gps_metadata": {
+      "lat": 17.5857,
+      "lng": 120.3881,
+      "timestamp": "2025-01-12T10:00:00Z"
+    }
+  },
+  {
+    "reporter": "DemoUser4",
+    "province": "Ilocos Sur",
+    "municipality": "San Vicente",
+    "barangay": "Poblacion",
+    "severity": "Critical",
+    "infestation_type": "Brown Plant Hopper (BPH)",
+    "lat": 17.5803,
+    "lng": 120.3982,
+    "description": "Severe BPH infestation damaging multiple fields.",
+    "gps_metadata": {
+      "lat": 17.5803,
+      "lng": 120.3982,
+      "timestamp": "2025-01-08T16:30:00Z"
+    }
+  },
+  {
+    "reporter": "DemoUser5",
+    "province": "Ilocos Sur",
+    "municipality": "Santa Catalina",
+    "barangay": "Paratong",
+    "severity": "Moderate",
+    "infestation_type": "Others",
+    "lat": 17.5749,
+    "lng": 120.4054,
+    "description": "Unidentified pest damaging rice seedlings.",
+    "gps_metadata": {
+      "lat": 17.5749,
+      "lng": 120.4054,
+      "timestamp": "2025-01-15T07:55:00Z"
+    }
+  },
+  {
+    "reporter": "DemoUser6",
+    "province": "Ilocos Sur",
+    "municipality": "Santa",
+    "barangay": "Quinarayan",
+    "severity": "High",
+    "infestation_type": "Rice Black Bug (RBB)",
+    "lat": 17.5412,
+    "lng": 120.3921,
+    "description": "Widespread infestation affecting vegetation.",
+    "gps_metadata": {
+      "lat": 17.5412,
+      "lng": 120.3921,
+      "timestamp": "2025-01-11T11:40:00Z"
+    }
+  },
+  {
+    "reporter": "DemoUser7",
+    "province": "Ilocos Sur",
+    "municipality": "Santa Maria",
+    "barangay": "Poblacion Norte",
+    "severity": "Low",
+    "infestation_type": "Golden Apple Snail (GAS)",
+    "lat": 17.3701,
+    "lng": 120.4641,
+    "description": "Minor GAS presence found.",
+    "gps_metadata": {
+      "lat": 17.3701,
+      "lng": 120.4641,
+      "timestamp": "2025-01-13T09:10:00Z"
+    }
+  },
+  {
+    "reporter": "DemoUser8",
+    "province": "Ilocos Sur",
+    "municipality": "Narvacan",
+    "barangay": "Quinarayan",
+    "severity": "Moderate",
+    "infestation_type": "Brown Plant Hopper (BPH)",
+    "lat": 17.4178,
+    "lng": 120.4742,
+    "description": "BPH density increasing.",
+    "gps_metadata": {
+      "lat": 17.4178,
+      "lng": 120.4742,
+      "timestamp": "2025-01-14T13:25:00Z"
+    }
+  },
+  {
+    "reporter": "DemoUser9",
+    "province": "Ilocos Sur",
+    "municipality": "Santa Cruz",
+    "barangay": "Poblacion Sur",
+    "severity": "Critical",
+    "infestation_type": "Rice Black Bug (RBB)",
+    "lat": 17.0581,
+    "lng": 120.4783,
+    "description": "RBB infestation affecting 4 hectares.",
+    "gps_metadata": {
+      "lat": 17.0581,
+      "lng": 120.4783,
+      "timestamp": "2025-01-06T15:45:00Z"
+    }
+  },
+  {
+    "reporter": "DemoUser10",
+    "province": "Ilocos Sur",
+    "municipality": "Tagudin",
+    "barangay": "Farola",
+    "severity": "High",
+    "infestation_type": "Golden Apple Snail (GAS)",
+    "lat": 16.9341,
+    "lng": 120.4411,
+    "description": "Large clusters of snails spotted.",
+    "gps_metadata": {
+      "lat": 16.9341,
+      "lng": 120.4411,
+      "timestamp": "2025-01-04T08:30:00Z"
+    }
+  },
+  {
+    "reporter": "DemoUser11",
+    "province": "Ilocos Sur",
+    "municipality": "Candon City",
+    "barangay": "Bagani Gabor",
+    "severity": "Moderate",
+    "infestation_type": "Brown Plant Hopper (BPH)",
+    "lat": 17.1964,
+    "lng": 120.4521,
+    "description": "BPH causing leaf discoloration.",
+    "gps_metadata": {
+      "lat": 17.1964,
+      "lng": 120.4521,
+      "timestamp": "2025-01-05T11:10:00Z"
+    }
+  },
+  {
+    "reporter": "DemoUser12",
+    "province": "Ilocos Sur",
+    "municipality": "Santa",
+    "barangay": "Purok Centro",
+    "severity": "Low",
+    "infestation_type": "Golden Apple Snail (GAS)",
+    "lat": 17.5220,
+    "lng": 120.3890,
+    "description": "Low snail activity.",
+    "gps_metadata": {
+      "lat": 17.5220,
+      "lng": 120.3890,
+      "timestamp": "2025-01-03T09:20:00Z"
+    }
+  },
+  {
+    "reporter": "DemoUser13",
+    "province": "Ilocos Sur",
+    "municipality": "Nagbukel",
+    "barangay": "Casilagan",
+    "severity": "High",
+    "infestation_type": "Rice Black Bug (RBB)",
+    "lat": 17.2242,
+    "lng": 120.4877,
+    "description": "RBB clusters detected in 3 locations.",
+    "gps_metadata": {
+      "lat": 17.2242,
+      "lng": 120.4877,
+      "timestamp": "2025-01-02T17:15:00Z"
+    }
+  },
+  {
+    "reporter": "DemoUser14",
+    "province": "Ilocos Sur",
+    "municipality": "San Ildefonso",
+    "barangay": "Poblacion East",
+    "severity": "Moderate",
+    "infestation_type": "Golden Apple Snail (GAS)",
+    "lat": 17.6381,
+    "lng": 120.4072,
+    "description": "Snails damaging early seedlings.",
+    "gps_metadata": {
+      "lat": 17.6381,
+      "lng": 120.4072,
+      "timestamp": "2025-01-18T06:45:00Z"
+    }
+  },
+  {
+    "reporter": "DemoUser15",
+    "province": "Ilocos Sur",
+    "municipality": "San Esteban",
+    "barangay": "Poblacion",
+    "severity": "Low",
+    "infestation_type": "Others",
+    "lat": 17.3332,
+    "lng": 120.4503,
+    "description": "Possible early-stage pest but unconfirmed.",
+    "gps_metadata": {
+      "lat": 17.3332,
+      "lng": 120.4503,
+      "timestamp": "2025-01-17T08:10:00Z"
+    }
+  }
+]
