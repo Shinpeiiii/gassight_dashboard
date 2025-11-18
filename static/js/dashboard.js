@@ -15,7 +15,6 @@ let autoRefreshTimer = null;
 // INIT MAP
 // -----------------------------------------------
 function initMap() {
-    // Center roughly around Ilocos Sur
     map = L.map("map").setView([17.25, 120.45], 9);
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -27,9 +26,8 @@ function initMap() {
 }
 
 
-
 // -----------------------------------------------
-// LOAD FILTER DROPDOWNS (Province / Municipality / Barangay)
+// LOAD FILTER DROPDOWNS
 // -----------------------------------------------
 async function loadFilterDropdowns() {
     const provinceSelect = document.getElementById("provinceFilter");
@@ -55,31 +53,21 @@ async function loadFilterDropdowns() {
         });
 
         [...provinces].sort().forEach(p => {
-            const opt = document.createElement("option");
-            opt.value = p;
-            opt.textContent = p;
-            provinceSelect.appendChild(opt);
+            provinceSelect.innerHTML += `<option value="${p}">${p}</option>`;
         });
 
         [...municipalities].sort().forEach(m => {
-            const opt = document.createElement("option");
-            opt.value = m;
-            opt.textContent = m;
-            municipalitySelect.appendChild(opt);
+            municipalitySelect.innerHTML += `<option value="${m}">${m}</option>`;
         });
 
         [...barangays].sort().forEach(b => {
-            const opt = document.createElement("option");
-            opt.value = b;
-            opt.textContent = b;
-            barangaySelect.appendChild(opt);
+            barangaySelect.innerHTML += `<option value="${b}">${b}</option>`;
         });
 
     } catch (err) {
         console.error("Failed loading dropdowns:", err);
     }
 }
-
 
 
 // -----------------------------------------------
@@ -91,7 +79,6 @@ async function fetchReports() {
     const barangay = document.getElementById("barangayFilter").value;
     const severity = document.getElementById("severityFilter").value;
     const infestationType = document.getElementById("infestationFilter").value;
-
     const start = document.getElementById("startDate").value;
     const end = document.getElementById("endDate").value;
 
@@ -110,11 +97,8 @@ async function fetchReports() {
     console.log("Fetching:", url);
 
     const res = await fetch(url);
-    const data = await res.json();
-
-    return data;
+    return await res.json();
 }
-
 
 
 // -----------------------------------------------
@@ -123,17 +107,18 @@ async function fetchReports() {
 async function updateReports() {
     try {
         window.allReports = await fetchReports();
-        console.log("Loaded reports:", window.allReports.length);
+
         updateHeatmap();
         updateMarkers();
         updateKPIs();
         updateCharts();
+        updateRecentReportsTable();   // <--- NEW
         updateLastUpdated();
+
     } catch (err) {
         console.error("Failed to update reports:", err);
     }
 }
-
 
 
 // -----------------------------------------------
@@ -159,7 +144,6 @@ function updateHeatmap() {
         maxZoom: 17,
     }).addTo(map);
 }
-
 
 
 // -----------------------------------------------
@@ -190,13 +174,12 @@ function updateMarkers() {
             <b>Severity:</b> ${r.severity}<br>
             <b>Date:</b> ${r.date}<br>
             <img src="${r.photo || '/static/icons/icon-192.png'}" 
-                style="width:120px;border-radius:5px;margin-top:4px;">
+                 style="width:120px;border-radius:5px;margin-top:4px;">
         `);
 
         markersLayer.addLayer(marker);
     });
 }
-
 
 
 // -----------------------------------------------
@@ -213,23 +196,15 @@ function updateKPIs() {
     const reporters = new Set(window.allReports.map(r => r.reporter || "Unknown"));
     document.getElementById("activeReporters").innerText = reporters.size;
 
-    // Placeholder for now
     document.getElementById("avgResponse").innerText = "0";
 }
-
 
 
 // -----------------------------------------------
 // CHARTS
 // -----------------------------------------------
 function updateCharts() {
-    const severityCount = {
-        Low: 0,
-        Moderate: 0,
-        High: 0,
-        Critical: 0,
-    };
-
+    const severityCount = { Low: 0, Moderate: 0, High: 0, Critical: 0 };
     const barangayCount = {};
     const weekly = {};
 
@@ -253,7 +228,6 @@ function updateCharts() {
 }
 
 
-
 function drawSeverityChart(data) {
     if (severityChart) severityChart.destroy();
 
@@ -261,13 +235,10 @@ function drawSeverityChart(data) {
         type: "pie",
         data: {
             labels: ["Low", "Moderate", "High", "Critical"],
-            datasets: [{
-                data: [data.Low, data.Moderate, data.High, data.Critical],
-            }]
+            datasets: [{ data: [data.Low, data.Moderate, data.High, data.Critical] }]
         }
     });
 }
-
 
 
 function drawBarangayChart(data) {
@@ -277,13 +248,10 @@ function drawBarangayChart(data) {
         type: "bar",
         data: {
             labels: Object.keys(data),
-            datasets: [{
-                data: Object.values(data),
-            }]
+            datasets: [{ data: Object.values(data) }]
         }
     });
 }
-
 
 
 function drawTrendChart(data) {
@@ -295,13 +263,48 @@ function drawTrendChart(data) {
         type: "line",
         data: {
             labels: labels,
-            datasets: [{
-                data: labels.map(d => data[d]),
-            }]
+            datasets: [{ data: labels.map(d => data[d]) }]
         }
     });
 }
 
+
+// -----------------------------------------------
+// NEW: RECENT REPORTS TABLE
+// -----------------------------------------------
+function updateRecentReportsTable() {
+    const tbody = document.getElementById("recentReportsTable");
+    tbody.innerHTML = "";
+
+    if (!window.allReports.length) {
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">No reports found</td></tr>`;
+        return;
+    }
+
+    const sorted = [...window.allReports].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    const recent = sorted.slice(0, 10);
+
+    recent.forEach(r => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td>${r.date || "-"}</td>
+            <td>${r.province || "-"}</td>
+            <td>${r.municipality || "-"}</td>
+            <td>${r.barangay || "-"}</td>
+            <td>
+                <span class="badge bg-${
+                    r.severity === "Critical" ? "danger" :
+                    r.severity === "High" ? "warning" :
+                    r.severity === "Moderate" ? "info" : "success"
+                }">${r.severity}</span>
+            </td>
+            <td>${r.infestation_type || "-"}</td>
+            <td>${r.reporter || "Unknown"}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
 
 
 // -----------------------------------------------
@@ -313,12 +316,9 @@ function updateLastUpdated() {
 
 function startAutoRefresh(seconds) {
     if (autoRefreshTimer) clearInterval(autoRefreshTimer);
-
     if (seconds === "off") return;
-
     autoRefreshTimer = setInterval(updateReports, seconds * 1000);
 }
-
 
 
 // -----------------------------------------------
@@ -330,10 +330,6 @@ window.addEventListener("load", async () => {
     await updateReports();
 
     document.getElementById("filterBtn").onclick = updateReports;
-
-    document.getElementById("refreshInterval").addEventListener("change", (e) => {
-        startAutoRefresh(e.target.value);
-    });
-
+    document.getElementById("refreshInterval").addEventListener("change", e => startAutoRefresh(e.target.value));
     document.getElementById("manualRefresh").onclick = updateReports;
 });
