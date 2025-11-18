@@ -57,13 +57,15 @@ def add_missing_columns():
             "email": "VARCHAR(150)",
             "contact": "VARCHAR(100)",
             "address": "VARCHAR(200)",
-            "is_admin": "BOOLEAN DEFAULT FALSE"
+            "is_admin": "BOOLEAN DEFAULT FALSE",
         }
 
         for col, dtype in required_columns.items():
             if col not in columns:
                 print(f"⚠ Adding missing users column: {col}")
-                db.session.execute(text(f'ALTER TABLE "users" ADD COLUMN {col} {dtype};'))
+                db.session.execute(
+                    text(f'ALTER TABLE "users" ADD COLUMN {col} {dtype};')
+                )
                 db.session.commit()
                 print(f"✔ Added: {col}")
 
@@ -104,11 +106,77 @@ class Report(db.Model):
 
 
 # --------------------------------------------------------------------
+# LOAD DEMO REPORTS FROM JSON
+# --------------------------------------------------------------------
+DEMO_REPORTS = []
+demo_path = os.path.join(os.path.dirname(__file__), "demo_reports.json")
+
+if os.path.exists(demo_path):
+    try:
+        with open(demo_path, "r") as f:
+            DEMO_REPORTS = json.load(f)
+        print(f"✔ Loaded {len(DEMO_REPORTS)} demo reports from demo_reports.json")
+    except Exception as e:
+        print("❌ Failed to load demo_reports.json:", e)
+else:
+    print("ℹ demo_reports.json not found; skipping demo load.")
+
+
+def seed_demo_reports():
+    """
+    Seed the Report table with DEMO_REPORTS if table is empty.
+    Runs only once on a fresh DB.
+    """
+    if not DEMO_REPORTS:
+        print("ℹ No demo reports to seed.")
+        return
+
+    existing_count = Report.query.count()
+    if existing_count > 0:
+        print(f"ℹ Reports table already has {existing_count} rows. Skipping seeding.")
+        return
+
+    print("⚠ Seeding demo reports into database...")
+
+    for r in DEMO_REPORTS:
+        # Safe timestamp parsing
+        ts = None
+        gps_meta = r.get("gps_metadata") or {}
+        ts_raw = gps_meta.get("timestamp")
+        if ts_raw:
+            try:
+                ts = datetime.strptime(ts_raw, "%Y-%m-%dT%H:%M:%SZ")
+            except Exception:
+                ts = datetime.utcnow()
+        else:
+            ts = datetime.utcnow()
+
+        report = Report(
+            reporter=r.get("reporter"),
+            province=r.get("province"),
+            municipality=r.get("municipality"),
+            barangay=r.get("barangay"),
+            severity=r.get("severity"),
+            infestation_type=r.get("infestation_type"),
+            lat=r.get("lat"),
+            lng=r.get("lng"),
+            description=r.get("description"),
+            photo=None,
+            date=ts,
+        )
+        db.session.add(report)
+
+    db.session.commit()
+    print("✔ Demo reports seeded successfully.")
+
+
+# --------------------------------------------------------------------
 # INITIALIZE DB
 # --------------------------------------------------------------------
 with app.app_context():
     db.create_all()
     add_missing_columns()
+    seed_demo_reports()  # <<< THIS MAKES YOUR DASHBOARD SHOW DEMO DATA
 
 
 # --------------------------------------------------------------------
@@ -143,7 +211,7 @@ def signup():
         email=email,
         contact=contact,
         address=address,
-        is_admin=is_admin
+        is_admin=is_admin,
     )
 
     db.session.add(user)
@@ -162,7 +230,6 @@ def api_register():
 # --------------------------------------------------------------------
 @app.route("/login", methods=["POST"])
 def login_submit():
-
     # HTML FORM LOGIN
     if request.form:
         username = request.form.get("username")
@@ -266,32 +333,39 @@ def get_reports():
     # date filtering
     try:
         if start_date:
-            query = query.filter(Report.date >= datetime.strptime(start_date, "%Y-%m-%d"))
+            query = query.filter(
+                Report.date >= datetime.strptime(start_date, "%Y-%m-%d")
+            )
         if end_date:
-            query = query.filter(Report.date <= datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1))
-    except:
+            query = query.filter(
+                Report.date
+                <= datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+            )
+    except Exception:
         pass
 
     reports = query.order_by(Report.date.desc()).all()
 
-    return jsonify([
-        {
-            "id": r.id,
-            "reporter": r.reporter,
-            "province": r.province,
-            "municipality": r.municipality,
-            "barangay": r.barangay,
-            "severity": r.severity,
-            "infestation_type": r.infestation_type,
-            "lat": r.lat,
-            "lng": r.lng,
-            "description": r.description,
-            "photo": r.photo,
-            "date": r.date.strftime("%Y-%m-%d %H:%M:%S"),
-            "status": "Pending",
-        }
-        for r in reports
-    ])
+    return jsonify(
+        [
+            {
+                "id": r.id,
+                "reporter": r.reporter,
+                "province": r.province,
+                "municipality": r.municipality,
+                "barangay": r.barangay,
+                "severity": r.severity,
+                "infestation_type": r.infestation_type,
+                "lat": r.lat,
+                "lng": r.lng,
+                "description": r.description,
+                "photo": r.photo,
+                "date": r.date.strftime("%Y-%m-%d %H:%M:%S"),
+                "status": "Pending",
+            }
+            for r in reports
+        ]
+    )
 
 
 # --------------------------------------------------------------------
