@@ -2,45 +2,281 @@ import os
 import uuid
 import io
 import csv
-import random
 import json
+import random
 from datetime import datetime, timedelta
 
 import requests
 from flask import (
-    Flask,
-    render_template,
-    jsonify,
-    send_from_directory,
-    request,
-    redirect,
-    url_for,
-    flash,
-    send_file,
-    make_response,
+    Flask, render_template, jsonify, send_from_directory,
+    request, redirect, url_for, flash, send_file, make_response
 )
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
-    LoginManager,
-    UserMixin,
-    login_user,
-    logout_user,
-    login_required,
-    current_user,
+    LoginManager, UserMixin, login_user, logout_user,
+    login_required, current_user
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from flask_jwt_extended import (
-    JWTManager,
-    create_access_token,
-    create_refresh_token,
-    jwt_required,
-    get_jwt_identity,
-    get_jwt,
+    JWTManager, create_access_token, create_refresh_token,
+    jwt_required, get_jwt_identity, get_jwt
 )
 from flask_cors import CORS
-from sqlalchemy import text, inspect
-import click
+from sqlalchemy import text, inspect  # for simple migrations
+
+# optional Excel support
+try:
+    from openpyxl import Workbook
+except ImportError:  # optional dependency
+    Workbook = None
+
+# =================================================
+# DEMO REPORTS DATA (from demo_reports.json)
+# =================================================
+
+DEMO_REPORTS = [
+    {
+        "reporter": "DemoUser1",
+        "province": "Ilocos Sur",
+        "municipality": "Vigan City",
+        "barangay": "Pantay Daya",
+        "severity": "Moderate",
+        "infestation_type": "Golden Apple Snail (GAS)",
+        "lat": 17.5741,
+        "lng": 120.3869,
+        "description": "Snail activity observed near irrigation canal.",
+        "gps_metadata": {
+            "lat": 17.5741,
+            "lng": 120.3869,
+            "timestamp": "2025-01-10T08:45:00Z"
+        }
+    },
+    {
+        "reporter": "DemoUser2",
+        "province": "Ilocos Sur",
+        "municipality": "Caoayan",
+        "barangay": "Don Alejandro Quirol",
+        "severity": "High",
+        "infestation_type": "Rice Black Bug (RBB)",
+        "lat": 17.5643,
+        "lng": 120.3794,
+        "description": "Heavy RBB presence in rice paddies.",
+        "gps_metadata": {
+            "lat": 17.5643,
+            "lng": 120.3794,
+            "timestamp": "2025-01-09T14:22:00Z"
+        }
+    },
+    {
+        "reporter": "DemoUser3",
+        "province": "Ilocos Sur",
+        "municipality": "Bantay",
+        "barangay": "Cabaroan",
+        "severity": "Low",
+        "infestation_type": "Golden Apple Snail (GAS)",
+        "lat": 17.5857,
+        "lng": 120.3881,
+        "description": "Few snails detected in drainage area.",
+        "gps_metadata": {
+            "lat": 17.5857,
+            "lng": 120.3881,
+            "timestamp": "2025-01-12T10:00:00Z"
+        }
+    },
+    {
+        "reporter": "DemoUser4",
+        "province": "Ilocos Sur",
+        "municipality": "San Vicente",
+        "barangay": "Poblacion",
+        "severity": "Critical",
+        "infestation_type": "Brown Plant Hopper (BPH)",
+        "lat": 17.5803,
+        "lng": 120.3982,
+        "description": "Severe BPH infestation damaging multiple fields.",
+        "gps_metadata": {
+            "lat": 17.5803,
+            "lng": 120.3982,
+            "timestamp": "2025-01-08T16:30:00Z"
+        }
+    },
+    {
+        "reporter": "DemoUser5",
+        "province": "Ilocos Sur",
+        "municipality": "Santa Catalina",
+        "barangay": "Paratong",
+        "severity": "Moderate",
+        "infestation_type": "Others",
+        "lat": 17.5749,
+        "lng": 120.4054,
+        "description": "Unidentified pest damaging rice seedlings.",
+        "gps_metadata": {
+            "lat": 17.5749,
+            "lng": 120.4054,
+            "timestamp": "2025-01-15T07:55:00Z"
+        }
+    },
+    {
+        "reporter": "DemoUser6",
+        "province": "Ilocos Sur",
+        "municipality": "Santa",
+        "barangay": "Quinarayan",
+        "severity": "High",
+        "infestation_type": "Rice Black Bug (RBB)",
+        "lat": 17.5412,
+        "lng": 120.3921,
+        "description": "Widespread infestation affecting vegetation.",
+        "gps_metadata": {
+            "lat": 17.5412,
+            "lng": 120.3921,
+            "timestamp": "2025-01-11T11:40:00Z"
+        }
+    },
+    {
+        "reporter": "DemoUser7",
+        "province": "Ilocos Sur",
+        "municipality": "Santa Maria",
+        "barangay": "Poblacion Norte",
+        "severity": "Low",
+        "infestation_type": "Golden Apple Snail (GAS)",
+        "lat": 17.3701,
+        "lng": 120.4641,
+        "description": "Minor GAS presence found.",
+        "gps_metadata": {
+            "lat": 17.3701,
+            "lng": 120.4641,
+            "timestamp": "2025-01-13T09:10:00Z"
+        }
+    },
+    {
+        "reporter": "DemoUser8",
+        "province": "Ilocos Sur",
+        "municipality": "Narvacan",
+        "barangay": "Quinarayan",
+        "severity": "Moderate",
+        "infestation_type": "Brown Plant Hopper (BPH)",
+        "lat": 17.4178,
+        "lng": 120.4742,
+        "description": "BPH density increasing.",
+        "gps_metadata": {
+            "lat": 17.4178,
+            "lng": 120.4742,
+            "timestamp": "2025-01-14T13:25:00Z"
+        }
+    },
+    {
+        "reporter": "DemoUser9",
+        "province": "Ilocos Sur",
+        "municipality": "Santa Cruz",
+        "barangay": "Poblacion Sur",
+        "severity": "Critical",
+        "infestation_type": "Rice Black Bug (RBB)",
+        "lat": 17.0581,
+        "lng": 120.4783,
+        "description": "RBB infestation affecting 4 hectares.",
+        "gps_metadata": {
+            "lat": 17.0581,
+            "lng": 120.4783,
+            "timestamp": "2025-01-06T15:45:00Z"
+        }
+    },
+    {
+        "reporter": "DemoUser10",
+        "province": "Ilocos Sur",
+        "municipality": "Tagudin",
+        "barangay": "Farola",
+        "severity": "High",
+        "infestation_type": "Golden Apple Snail (GAS)",
+        "lat": 16.9341,
+        "lng": 120.4411,
+        "description": "Large clusters of snails spotted.",
+        "gps_metadata": {
+            "lat": 16.9341,
+            "lng": 120.4411,
+            "timestamp": "2025-01-04T08:30:00Z"
+        }
+    },
+    {
+        "reporter": "DemoUser11",
+        "province": "Ilocos Sur",
+        "municipality": "Candon City",
+        "barangay": "Bagani Gabor",
+        "severity": "Moderate",
+        "infestation_type": "Brown Plant Hopper (BPH)",
+        "lat": 17.1964,
+        "lng": 120.4521,
+        "description": "BPH causing leaf discoloration.",
+        "gps_metadata": {
+            "lat": 17.1964,
+            "lng": 120.4521,
+            "timestamp": "2025-01-05T11:10:00Z"
+        }
+    },
+    {
+        "reporter": "DemoUser12",
+        "province": "Ilocos Sur",
+        "municipality": "Santa",
+        "barangay": "Purok Centro",
+        "severity": "Low",
+        "infestation_type": "Golden Apple Snail (GAS)",
+        "lat": 17.5220,
+        "lng": 120.3890,
+        "description": "Low snail activity.",
+        "gps_metadata": {
+            "lat": 17.5220,
+            "lng": 120.3890,
+            "timestamp": "2025-01-03T09:20:00Z"
+        }
+    },
+    {
+        "reporter": "DemoUser13",
+        "province": "Ilocos Sur",
+        "municipality": "Nagbukel",
+        "barangay": "Casilagan",
+        "severity": "High",
+        "infestation_type": "Rice Black Bug (RBB)",
+        "lat": 17.2242,
+        "lng": 120.4877,
+        "description": "RBB clusters detected in 3 locations.",
+        "gps_metadata": {
+            "lat": 17.2242,
+            "lng": 120.4877,
+            "timestamp": "2025-01-02T17:15:00Z"
+        }
+    },
+    {
+        "reporter": "DemoUser14",
+        "province": "Ilocos Sur",
+        "municipality": "San Ildefonso",
+        "barangay": "Poblacion East",
+        "severity": "Moderate",
+        "infestation_type": "Golden Apple Snail (GAS)",
+        "lat": 17.6381,
+        "lng": 120.4072,
+        "description": "Snails damaging early seedlings.",
+        "gps_metadata": {
+            "lat": 17.6381,
+            "lng": 120.4072,
+            "timestamp": "2025-01-18T06:45:00Z"
+        }
+    },
+    {
+        "reporter": "DemoUser15",
+        "province": "Ilocos Sur",
+        "municipality": "San Esteban",
+        "barangay": "Poblacion",
+        "severity": "Low",
+        "infestation_type": "Others",
+        "lat": 17.3332,
+        "lng": 120.4503,
+        "description": "Possible early-stage pest but unconfirmed.",
+        "gps_metadata": {
+            "lat": 17.3332,
+            "lng": 120.4503,
+            "timestamp": "2025-01-17T08:10:00Z"
+        }
+    }
+]
 
 # =================================================
 # APP INITIALIZATION
@@ -48,7 +284,6 @@ import click
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
-# Allow mobile app to call /api/*
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-key")
@@ -84,11 +319,10 @@ def is_token_revoked(jwt_header, jwt_payload):
 db_url = os.environ.get("DATABASE_URL")
 
 if db_url and db_url.startswith("postgres://"):
-    # Render / old Heroku style
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
 if not db_url:
-    print("⚠️ WARNING: No DATABASE_URL found. Using local SQLite gassight.db")
+    print("⚠️ WARNING: No DATABASE_URL found. Using SQLite.")
     db_url = "sqlite:///gassight.db"
 
 app.config["SQLALCHEMY_DATABASE_URI"] = db_url
@@ -108,10 +342,10 @@ FIREBASE_SERVER_KEY = os.environ.get("FIREBASE_SERVER_KEY")  # optional for push
 
 ALLOWED_IMAGE_EXT = {"jpg", "jpeg", "png"}
 
+
 # =================================================
 # MODELS
 # =================================================
-
 
 class Province(db.Model):
     __tablename__ = "provinces"
@@ -132,9 +366,7 @@ class Barangay(db.Model):
     __tablename__ = "barangays"
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
-    municipality_id = db.Column(
-        db.Integer, db.ForeignKey("municipalities.id"), nullable=False
-    )
+    municipality_id = db.Column(db.Integer, db.ForeignKey("municipalities.id"), nullable=False)
 
     municipality = db.relationship("Municipality")
 
@@ -183,17 +415,16 @@ class Report(db.Model):
     status = db.Column(db.String(50), default="Pending")
     action_status = db.Column(db.String(50), default="Not Resolved")
 
-    # infestation type (GAS, RBB, etc.)
     infestation_type = db.Column(db.String(120))
-
-    # Optional: short text about report (may not exist in DB yet)
-    description = db.Column(db.Text)
 
     photo = db.Column(db.String(255))
 
-    # GEO-TAGGING
-    lat = db.Column(db.Float)  # latitude
-    lng = db.Column(db.Float)  # longitude
+    lat = db.Column(db.Float)
+    lng = db.Column(db.Float)
+
+    # NEW: extra fields to match your JSON
+    description = db.Column(db.Text)
+    gps_metadata = db.Column(db.Text)  # stored as JSON string
 
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
 
@@ -237,12 +468,11 @@ def load_user(user_id):
 # SIMPLE AUTO-MIGRATIONS
 # =================================================
 
-
 def run_simple_migrations():
     """
-    Adds missing columns (lat, lng, infestation_type, description, province,
-    municipality, barangay) if they are not present yet.
-    Works for Postgres and SQLite via plain ALTER TABLE.
+    Adds missing columns (lat, lng, infestation_type, description, gps_metadata,
+    province, municipality, barangay) if they are not present yet.
+    Works for Postgres and SQLite.
     """
     engine = db.engine
     inspector = inspect(engine)
@@ -256,33 +486,32 @@ def run_simple_migrations():
             print(f"⚠️ INSPECT ERROR for {table_name}.{col_name}: {e}")
             return False
 
-    # REPORT columns
+    # report table
     try:
         if not has_column("report", "lat"):
-            db.session.execute(
-                text("ALTER TABLE report ADD COLUMN lat DOUBLE PRECISION")
-            )
+            db.session.execute(text("ALTER TABLE report ADD COLUMN lat DOUBLE PRECISION"))
             print("✅ MIGRATION: added report.lat")
 
         if not has_column("report", "lng"):
-            db.session.execute(
-                text("ALTER TABLE report ADD COLUMN lng DOUBLE PRECISION")
-            )
+            db.session.execute(text("ALTER TABLE report ADD COLUMN lng DOUBLE PRECISION"))
             print("✅ MIGRATION: added report.lng")
 
         if not has_column("report", "infestation_type"):
-            db.session.execute(
-                text("ALTER TABLE report ADD COLUMN infestation_type TEXT")
-            )
+            db.session.execute(text("ALTER TABLE report ADD COLUMN infestation_type TEXT"))
             print("✅ MIGRATION: added report.infestation_type")
 
         if not has_column("report", "description"):
             db.session.execute(text("ALTER TABLE report ADD COLUMN description TEXT"))
             print("✅ MIGRATION: added report.description")
+
+        if not has_column("report", "gps_metadata"):
+            db.session.execute(text("ALTER TABLE report ADD COLUMN gps_metadata TEXT"))
+            print("✅ MIGRATION: added report.gps_metadata")
+
     except Exception as e:
         print("⚠️ MIGRATION ERROR for report table:", e)
 
-    # USER columns – table is named "user" (reserved, quoted in Postgres)
+    # user table
     user_table_sql = '"user"' if dialect == "postgresql" else "user"
 
     try:
@@ -294,10 +523,7 @@ def run_simple_migrations():
 
         if not has_column("user", "municipality"):
             db.session.execute(
-                text(
-                    f"ALTER TABLE {user_table_sql} "
-                    "ADD COLUMN municipality VARCHAR(120)"
-                )
+                text(f"ALTER TABLE {user_table_sql} ADD COLUMN municipality VARCHAR(120)")
             )
             print("✅ MIGRATION: added user.municipality")
 
@@ -320,10 +546,10 @@ with app.app_context():
     db.create_all()
     run_simple_migrations()
 
+
 # =================================================
 # HELPERS
 # =================================================
-
 
 def sanitize(text_val):
     if text_val is None:
@@ -359,8 +585,7 @@ def send_fcm_notification(user, notif, extra_data=None):
             "title": notif.title,
             "body": notif.body,
         },
-        "data": extra_data
-        or {
+        "data": extra_data or {
             "type": "HOTSPOT_ALERT",
             "notification_id": notif.id,
             "severity": notif.severity,
@@ -384,12 +609,10 @@ def create_location_notifications(report: Report):
     if not report.severity:
         return
 
-    # Only notify for High / Critical
     sev = report.severity.lower()
     if sev not in ("high", "critical"):
         return
 
-    # Target: same barangay first, then same municipality, then same province.
     q = User.query.filter(User.is_admin.is_(False))
 
     if report.barangay:
@@ -399,7 +622,6 @@ def create_location_notifications(report: Report):
     elif report.province:
         q = q.filter(User.province == report.province)
     else:
-        # no location info -> don't spam everyone
         return
 
     farmers = q.all()
@@ -422,7 +644,7 @@ def create_location_notifications(report: Report):
             infestation_type=report.infestation_type,
         )
         db.session.add(notif)
-        db.session.flush()  # to get notif.id for data payload
+        db.session.flush()
         send_fcm_notification(
             farmer,
             notif,
@@ -442,7 +664,6 @@ def create_location_notifications(report: Report):
 
 
 def apply_report_filters(q, args):
-    """Reuse filters for JSON, CSV, Excel, and print views."""
     province_name = args.get("province")
     municipality_name = args.get("municipality")
     barangay_name = args.get("barangay")
@@ -481,7 +702,6 @@ def apply_report_filters(q, args):
 # STATIC (PWA)
 # =================================================
 
-
 @app.route("/service-worker.js")
 def service_worker():
     return send_from_directory("static", "service-worker.js")
@@ -490,7 +710,6 @@ def service_worker():
 # =================================================
 # PAGE ROUTES (ADMIN WEB)
 # =================================================
-
 
 @app.route("/")
 def home():
@@ -581,7 +800,6 @@ def logout():
 # API — LOCATION (FOR DROPDOWNS)
 # =================================================
 
-
 @app.route("/api/provinces")
 def api_provinces():
     data = Province.query.order_by(Province.name.asc()).all()
@@ -612,18 +830,8 @@ def api_barangays():
 # MOBILE API — SIGNUP / LOGIN / TOKEN CHECK
 # =================================================
 
-
 @app.route("/api/signup", methods=["POST"])
 def api_signup():
-    """
-    Body JSON:
-      {
-        username, password,
-        fullName?, email?, contact?, address?,
-        province?, municipality?, barangay?
-      }
-    Returns tokens on success.
-    """
     data = request.get_json() or {}
 
     username = sanitize(data.get("username", ""))
@@ -665,26 +873,17 @@ def api_signup():
     access_token = create_access_token(identity=str(user.id))
     refresh_token = create_refresh_token(identity=str(user.id))
 
-    return (
-        jsonify(
-            {
-                "message": "Signup success",
-                "token": access_token,
-                "access_token": access_token,
-                "refresh_token": refresh_token,
-                "username": username,
-            }
-        ),
-        200,
-    )
+    return jsonify({
+        "message": "Signup success",
+        "token": access_token,
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "username": username,
+    }), 200
 
 
 @app.route("/api/login", methods=["POST"])
 def api_login():
-    """
-    Body JSON: {username, password}
-    Returns: {message, token, access_token, refresh_token}
-    """
     data = request.get_json() or {}
     username = sanitize(data.get("username", ""))
     password = data.get("password", "")
@@ -697,18 +896,13 @@ def api_login():
     access_token = create_access_token(identity=str(user.id))
     refresh_token = create_refresh_token(identity=str(user.id))
 
-    return (
-        jsonify(
-            {
-                "message": "Login success",
-                "token": access_token,
-                "access_token": access_token,
-                "refresh_token": refresh_token,
-                "username": user.username,
-            }
-        ),
-        200,
-    )
+    return jsonify({
+        "message": "Login success",
+        "token": access_token,
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "username": user.username,
+    }), 200
 
 
 @app.route("/api/refresh", methods=["POST"])
@@ -716,12 +910,11 @@ def api_login():
 def api_refresh():
     user_id = get_jwt_identity()
     access_token = create_access_token(identity=str(user_id))
-    return (
-        jsonify(
-            {"message": "Token refreshed", "token": access_token, "access_token": access_token}
-        ),
-        200,
-    )
+    return jsonify({
+        "message": "Token refreshed",
+        "token": access_token,
+        "access_token": access_token,
+    }), 200
 
 
 @app.route("/api/check_token", methods=["GET"])
@@ -741,18 +934,15 @@ def api_logout():
 
 # =================================================
 # MOBILE API — SAVE FCM TOKEN
+# Path matches AuthService: /api/fcm_token
 # =================================================
 
-
-@app.route("/api/fcm-token", methods=["POST"])
+@app.route("/api/fcm_token", methods=["POST"])
 @jwt_required()
 def api_fcm_token():
-    """
-    Body JSON: { "token": "<device_fcm_token>" }
-    """
     user_id = int(get_jwt_identity())
     data = request.get_json() or {}
-    token = (data.get("token") or "").strip()
+    token = (data.get("fcm_token") or "").strip()
     if not token:
         return jsonify({"error": "Missing token"}), 400
 
@@ -770,19 +960,9 @@ def api_fcm_token():
 # MOBILE API — SUBMIT REPORT
 # =================================================
 
-
 @app.route("/api/report", methods=["POST"])
 @jwt_required()
 def submit_report():
-    """
-    Accepts:
-    - multipart/form-data (with optional photo)
-    - application/json (offline sync)
-
-    Fields:
-      reporter, province, municipality, barangay, severity,
-      infestation_type, lat, lng, description?, photo / photo_url
-    """
     user_id = int(get_jwt_identity())
 
     if request.content_type and request.content_type.startswith("multipart/form-data"):
@@ -795,6 +975,9 @@ def submit_report():
         severity = sanitize(form.get("severity")) or "Low"
         infestation_type = sanitize(form.get("infestation_type")) or "Other"
         description = sanitize(form.get("description"))
+
+        gps_metadata_raw = form.get("gps_metadata")
+        gps_metadata = gps_metadata_raw if gps_metadata_raw else None
 
         try:
             lat = float(form.get("lat")) if form.get("lat") else None
@@ -822,6 +1005,9 @@ def submit_report():
         infestation_type = sanitize(data.get("infestation_type")) or "Other"
         description = sanitize(data.get("description"))
 
+        gps_md = data.get("gps_metadata")
+        gps_metadata = json.dumps(gps_md) if gps_md is not None else None
+
         lat = data.get("lat")
         lng = data.get("lng")
         try:
@@ -840,36 +1026,30 @@ def submit_report():
         barangay=barangay,
         severity=severity,
         infestation_type=infestation_type,
-        description=description,
         lat=lat,
         lng=lng,
         photo=photo,
+        description=description,
+        gps_metadata=gps_metadata,
         user_id=user_id,
     )
 
     db.session.add(report)
     db.session.commit()
 
-    # create notifications for nearby farmers (High / Critical only)
     create_location_notifications(report)
 
-    return (
-        jsonify(
-            {
-                "message": "Report submitted successfully",
-                "id": report.id,
-                "severity": report.severity,
-                "infestation_type": report.infestation_type,
-            }
-        ),
-        201,
-    )
+    return jsonify({
+        "message": "Report submitted successfully",
+        "id": report.id,
+        "severity": report.severity,
+        "infestation_type": report.infestation_type,
+    }), 201
 
 
 # =================================================
 # MOBILE API — NOTIFICATIONS INBOX
 # =================================================
-
 
 @app.route("/api/notifications", methods=["GET"])
 @jwt_required()
@@ -878,33 +1058,28 @@ def api_notifications():
 
     notifs = Notification.query.filter_by(user_id=user_id).order_by(
         Notification.created_at.desc()
-    )
+    ).all()
 
-    return jsonify(
-        [
-            {
-                "id": n.id,
-                "title": n.title,
-                "body": n.body,
-                "province": n.province,
-                "municipality": n.municipality,
-                "barangay": n.barangay,
-                "severity": n.severity,
-                "infestation_type": n.infestation_type,
-                "created_at": n.created_at.isoformat(),
-                "is_read": n.is_read,
-            }
-            for n in notifs
-        ]
-    )
+    return jsonify([
+        {
+            "id": n.id,
+            "title": n.title,
+            "body": n.body,
+            "province": n.province,
+            "municipality": n.municipality,
+            "barangay": n.barangay,
+            "severity": n.severity,
+            "infestation_type": n.infestation_type,
+            "created_at": n.created_at.isoformat(),
+            "is_read": n.is_read,
+        }
+        for n in notifs
+    ])
 
 
 @app.route("/api/notifications/read", methods=["POST"])
 @jwt_required()
 def api_notifications_read():
-    """
-    Body JSON: { "ids": [1,2,3] }  # optional; if omitted -> mark all as read
-    """
     user_id = int(get_jwt_identity())
     data = request.get_json() or {}
     ids = data.get("ids")
@@ -924,39 +1099,35 @@ def api_notifications_read():
 # DASHBOARD API — FILTERED REPORTS (JSON)
 # =================================================
 
-
 @app.route("/api/reports")
 def get_reports():
     q = apply_report_filters(Report.query, request.args)
     reports = q.order_by(Report.date.desc()).all()
 
-    return jsonify(
-        [
-            {
-                "id": r.id,
-                "date": r.date.strftime("%Y-%m-%d %H:%M") if r.date else "",
-                "reporter": r.reporter,
-                "province": r.province,
-                "municipality": r.municipality,
-                "barangay": r.barangay,
-                "severity": r.severity,
-                "infestation_type": r.infestation_type,
-                "status": r.status,
-                "action_status": r.action_status,
-                "photo": r.photo,
-                "lat": r.lat,
-                "lng": r.lng,
-                "description": r.description,
-            }
-            for r in reports
-        ]
-    )
+    return jsonify([
+        {
+            "id": r.id,
+            "date": r.date.strftime("%Y-%m-%d %H:%M") if r.date else "",
+            "reporter": r.reporter,
+            "province": r.province,
+            "municipality": r.municipality,
+            "barangay": r.barangay,
+            "severity": r.severity,
+            "infestation_type": r.infestation_type,
+            "status": r.status,
+            "action_status": r.action_status,
+            "photo": r.photo,
+            "lat": r.lat,
+            "lng": r.lng,
+            "description": r.description,
+        }
+        for r in reports
+    ])
 
 
 # =================================================
 # DASHBOARD EXPORT — CSV
 # =================================================
-
 
 @app.route("/api/reports/export/csv")
 @login_required
@@ -971,42 +1142,32 @@ def export_reports_csv():
     writer = csv.writer(output)
 
     header = [
-        "ID",
-        "Date",
-        "Reporter",
-        "Province",
-        "Municipality",
-        "Barangay",
-        "Severity",
-        "Infestation Type",
-        "Status",
-        "Action Status",
-        "Latitude",
-        "Longitude",
-        "Photo URL",
-        "Description",
+        "ID", "Date", "Reporter",
+        "Province", "Municipality", "Barangay",
+        "Severity", "Infestation Type",
+        "Status", "Action Status",
+        "Latitude", "Longitude", "Photo URL",
+        "Description"
     ]
     writer.writerow(header)
 
     for r in reports:
-        writer.writerow(
-            [
-                r.id,
-                r.date.strftime("%Y-%m-%d %H:%M") if r.date else "",
-                r.reporter or "",
-                r.province or "",
-                r.municipality or "",
-                r.barangay or "",
-                r.severity or "",
-                r.infestation_type or "",
-                r.status or "",
-                r.action_status or "",
-                r.lat or "",
-                r.lng or "",
-                r.photo or "",
-                (r.description or "").replace("\n", " "),
-            ]
-        )
+        writer.writerow([
+            r.id,
+            r.date.strftime("%Y-%m-%d %H:%M") if r.date else "",
+            r.reporter or "",
+            r.province or "",
+            r.municipality or "",
+            r.barangay or "",
+            r.severity or "",
+            r.infestation_type or "",
+            r.status or "",
+            r.action_status or "",
+            r.lat or "",
+            r.lng or "",
+            r.photo or "",
+            r.description or "",
+        ])
 
     resp = make_response(output.getvalue())
     resp.headers["Content-Type"] = "text/csv"
@@ -1018,12 +1179,6 @@ def export_reports_csv():
 # DASHBOARD EXPORT — EXCEL
 # =================================================
 
-try:
-    from openpyxl import Workbook
-except ImportError:
-    Workbook = None
-
-
 @app.route("/api/reports/export/excel")
 @login_required
 def export_reports_excel():
@@ -1031,14 +1186,9 @@ def export_reports_excel():
         return redirect(url_for("no_access"))
 
     if Workbook is None:
-        return (
-            jsonify(
-                {
-                    "error": "Excel export not available. Install openpyxl on the server."
-                }
-            ),
-            500,
-        )
+        return jsonify({
+            "error": "Excel export not available. Install openpyxl on the server."
+        }), 500
 
     q = apply_report_filters(Report.query, request.args)
     reports = q.order_by(Report.date.desc()).all()
@@ -1048,42 +1198,32 @@ def export_reports_excel():
     ws.title = "Reports"
 
     header = [
-        "ID",
-        "Date",
-        "Reporter",
-        "Province",
-        "Municipality",
-        "Barangay",
-        "Severity",
-        "Infestation Type",
-        "Status",
-        "Action Status",
-        "Latitude",
-        "Longitude",
-        "Photo URL",
-        "Description",
+        "ID", "Date", "Reporter",
+        "Province", "Municipality", "Barangay",
+        "Severity", "Infestation Type",
+        "Status", "Action Status",
+        "Latitude", "Longitude", "Photo URL",
+        "Description"
     ]
     ws.append(header)
 
     for r in reports:
-        ws.append(
-            [
-                r.id,
-                r.date.strftime("%Y-%m-%d %H:%M") if r.date else "",
-                r.reporter or "",
-                r.province or "",
-                r.municipality or "",
-                r.barangay or "",
-                r.severity or "",
-                r.infestation_type or "",
-                r.status or "",
-                r.action_status or "",
-                r.lat or "",
-                r.lng or "",
-                r.photo or "",
-                r.description or "",
-            ]
-        )
+        ws.append([
+            r.id,
+            r.date.strftime("%Y-%m-%d %H:%M") if r.date else "",
+            r.reporter or "",
+            r.province or "",
+            r.municipality or "",
+            r.barangay or "",
+            r.severity or "",
+            r.infestation_type or "",
+            r.status or "",
+            r.action_status or "",
+            r.lat or "",
+            r.lng or "",
+            r.photo or "",
+            r.description or "",
+        ])
 
     file_io = io.BytesIO()
     wb.save(file_io)
@@ -1101,7 +1241,6 @@ def export_reports_excel():
 # DASHBOARD PRINT VIEW — HTML
 # =================================================
 
-
 @app.route("/reports/print")
 @login_required
 def print_reports_view():
@@ -1115,9 +1254,8 @@ def print_reports_view():
 
 
 # =================================================
-# ADMIN — POPULATE SAMPLE REPORTS (WEB ROUTE)
+# ADMIN — RANDOM SAMPLE REPORTS (optional)
 # =================================================
-
 
 @app.route("/admin/reports/populate", methods=["POST"])
 @login_required
@@ -1145,7 +1283,7 @@ def populate_reports():
         infest = random.choice(infestations)
 
         r = Report(
-            date=datetime.utcnow() - timedelta(days=random.randint(0, 14)),
+            date=datetime.utcnow() - timedelta(days[random.randint(0, 14))),
             reporter=f"Farmer {random.randint(1, 20)}",
             province=prov,
             municipality=mun,
@@ -1158,7 +1296,6 @@ def populate_reports():
             lng=120.0 + random.random(),
             photo="",
             user_id=current_user.id,
-            description="Demo report generated by admin populate endpoint.",
         )
         db.session.add(r)
 
@@ -1167,106 +1304,113 @@ def populate_reports():
 
 
 # =================================================
-# FLASK CLI — SEED DEMO REPORTS (FROM JSON OR FALLBACK)
+# ADMIN — SEED DEMO REPORTS FROM DEMO_REPORTS CONSTANT
 # =================================================
 
-
-@app.cli.command("seed-demo")
+@app.route("/admin/seed-demo", methods=["GET"])
+@login_required
 def seed_demo():
     """
-    Seed demo reports.
+    Seed the Ilocos Sur demo reports + location tables.
 
-    Usage (locally or via Render shell):
-
-        flask seed-demo
-
-    Behaviour:
-    - If instance/demo_reports.json exists, load from there.
-      Expected keys per record:
-        reporter, province, municipality, barangay,
-        severity, infestation_type, lat, lng, description (optional)
-    - Otherwise, generates some Ilocos Sur demo reports.
+    Usage (once):
+      1. Log in as admin in the web dashboard.
+      2. Visit /admin/seed-demo in your browser:
+         https://gassight.onrender.com/admin/seed-demo
     """
-    with app.app_context():
-        os.makedirs(app.instance_path, exist_ok=True)
-        json_path = os.path.join(app.instance_path, "demo_reports.json")
+    if not current_user.is_admin:
+        return redirect(url_for("no_access"))
 
-        if os.path.exists(json_path):
-            with open(json_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+    # avoid double-inserting
+    existing = Report.query.filter(Report.reporter.like("DemoUser%")).count()
+    if existing > 0:
+        return jsonify({
+            "message": "Demo reports already exist",
+            "existing_demo_reports": existing
+        })
 
-            if not isinstance(data, list):
-                click.echo("demo_reports.json must contain a JSON array.")
-                return
+    # prepare caches
+    prov_cache = {}
+    mun_cache = {}
 
-            count = 0
-            for r in data:
-                report = Report(
-                    date=datetime.utcnow(),
-                    reporter=r.get("reporter"),
-                    province=r.get("province"),
-                    municipality=r.get("municipality"),
-                    barangay=r.get("barangay"),
-                    severity=r.get("severity", "Low"),
-                    status=r.get("status", "Pending"),
-                    action_status=r.get("action_status", "Not Resolved"),
-                    infestation_type=r.get("infestation_type"),
-                    lat=r.get("lat"),
-                    lng=r.get("lng"),
-                    description=r.get("description"),
-                    photo=r.get("photo", ""),
-                    user_id=None,
-                )
-                db.session.add(report)
-                count += 1
+    for entry in DEMO_REPORTS:
+        prov_name = entry["province"]
+        mun_name = entry["municipality"]
+        brgy_name = entry["barangay"]
 
-            db.session.commit()
-            click.echo(f"✅ Inserted {count} demo reports from demo_reports.json")
-            return
+        # Province
+        if prov_name in prov_cache:
+            prov = prov_cache[prov_name]
+        else:
+            prov = Province.query.filter_by(name=prov_name).first()
+            if not prov:
+                prov = Province(name=prov_name)
+                db.session.add(prov)
+                db.session.flush()
+            prov_cache[prov_name] = prov
 
-        # Fallback demo data (Ilocos Sur + surrounding)
-        severities = ["Low", "Moderate", "High", "Critical"]
-        infestations = [
-            "Golden Apple Snail (GAS)",
-            "Rice Black Bug (RBB)",
-            "Brown Plant Hopper (BPH)",
-            "Others",
-        ]
+        # Municipality
+        mun_key = (mun_name, prov.id)
+        if mun_key in mun_cache:
+            mun = mun_cache[mun_key]
+        else:
+            mun = Municipality.query.filter_by(name=mun_name, province_id=prov.id).first()
+            if not mun:
+                mun = Municipality(name=mun_name, province_id=prov.id)
+                db.session.add(mun)
+                db.session.flush()
+            mun_cache[mun_key] = mun
 
-        ilocos_province = "Ilocos Sur"
-        towns = ["Vigan City", "Candon City", "Santa", "Bantay", "Sta. Maria"]
-        barangays = ["Barangay I", "Barangay II", "Barangay III", "Cabaroan", "Tablac"]
+        # Barangay
+        brgy = Barangay.query.filter_by(name=brgy_name, municipality_id=mun.id).first()
+        if not brgy:
+            brgy = Barangay(name=brgy_name, municipality_id=mun.id)
+            db.session.add(brgy)
+            db.session.flush()
 
-        for i in range(15):  # 15 demo reports
-            town = random.choice(towns)
-            brgy = random.choice(barangays)
-            sev = random.choice(severities)
-            infest = random.choice(infestations)
+        # Parse date from gps_metadata timestamp if present
+        ts = entry.get("gps_metadata", {}).get("timestamp")
+        if ts:
+            try:
+                # handle trailing Z
+                ts_clean = ts.replace("Z", "+00:00")
+                report_date = datetime.fromisoformat(ts_clean)
+            except Exception:
+                report_date = datetime.utcnow()
+        else:
+            report_date = datetime.utcnow()
 
-            r = Report(
-                date=datetime.utcnow() - timedelta(days=random.randint(0, 7)),
-                reporter=f"Demo Farmer {i+1}",
-                province=ilocos_province,
-                municipality=town,
-                barangay=brgy,
-                severity=sev,
-                status="Pending" if sev in ("High", "Critical") else "In Progress",
-                action_status="Not Resolved",
-                infestation_type=infest,
-                lat=17.50 + random.random() * 0.3,
-                lng=120.35 + random.random() * 0.3,
-                photo="",
-                user_id=None,
-                description=f"Demo report #{i+1} seeded via CLI in {brgy}, {town}.",
-            )
-            db.session.add(r)
+        gps_md = json.dumps(entry.get("gps_metadata")) if entry.get("gps_metadata") else None
 
-        db.session.commit()
-        click.echo("✅ Inserted 15 fallback demo reports for Ilocos Sur.")
+        r = Report(
+            date=report_date,
+            reporter=entry["reporter"],
+            province=prov_name,
+            municipality=mun_name,
+            barangay=brgy_name,
+            severity=entry["severity"],
+            infestation_type=entry["infestation_type"],
+            lat=entry["lat"],
+            lng=entry["lng"],
+            description=entry["description"],
+            gps_metadata=gps_md,
+            status="Pending",
+            action_status="Not Resolved",
+            photo="",
+            user_id=current_user.id,
+        )
+        db.session.add(r)
+
+    db.session.commit()
+
+    return jsonify({
+        "message": "Demo reports seeded successfully",
+        "inserted": len(DEMO_REPORTS)
+    }), 201
 
 
 # =================================================
-# RUN (LOCAL DEV)
+# RUN
 # =================================================
 
 if __name__ == "__main__":
