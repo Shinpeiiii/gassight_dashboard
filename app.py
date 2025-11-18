@@ -38,6 +38,50 @@ db = SQLAlchemy(app)
 
 
 # --------------------------------------------------------------------
+# AUTO-FIX USER TABLE (SQLAlchemy 2.x SAFE)
+# --------------------------------------------------------------------
+def add_missing_columns():
+    """
+    Make sure the 'users' table has all columns used by the User model.
+    Safe to run on every startup.
+    """
+    try:
+        # If we're on SQLite, information_schema doesn't exist – just skip
+        if app.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite"):
+            return
+
+        result = db.session.execute(
+            text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='users';"
+            )
+        ).fetchall()
+
+        columns = [r[0] for r in result]
+
+        required_columns = {
+            "password": "VARCHAR(120)",
+            "full_name": "VARCHAR(120)",
+            "email": "VARCHAR(150)",
+            "contact": "VARCHAR(100)",
+            "address": "VARCHAR(200)",
+            "is_admin": "BOOLEAN DEFAULT FALSE",
+        }
+
+        for col, dtype in required_columns.items():
+            if col not in columns:
+                print(f"⚠ Adding missing users column: {col}")
+                db.session.execute(
+                    text(f'ALTER TABLE "users" ADD COLUMN {col} {dtype};')
+                )
+                db.session.commit()
+                print(f"✔ Added: {col}")
+
+    except Exception as e:
+        print("❌ Column auto-fix failed:", e)
+
+
+# --------------------------------------------------------------------
 # MODELS
 # --------------------------------------------------------------------
 class User(db.Model):
@@ -70,91 +114,38 @@ class Report(db.Model):
 
 
 # --------------------------------------------------------------------
-# AUTO-FIX USER TABLE COLUMNS (SAFE FOR SQLALCHEMY 2.x)
-# --------------------------------------------------------------------
-def add_missing_user_columns():
-    """
-    Adds missing columns to the 'users' table if it exists (Postgres).
-    If using SQLite locally, this may fail silently (caught by except).
-    """
-    try:
-        result = db.session.execute(
-            text(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_name='users';"
-            )
-        ).fetchall()
-
-        columns = [r[0] for r in result]
-
-        required_columns = {
-            "password": "VARCHAR(120)",
-            "full_name": "VARCHAR(120)",
-            "email": "VARCHAR(150)",
-            "contact": "VARCHAR(100)",
-            "address": "VARCHAR(200)",
-            "is_admin": "BOOLEAN DEFAULT FALSE",
-        }
-
-        for col, dtype in required_columns.items():
-            if col not in columns:
-                print(f"⚠ Adding missing users column: {col}")
-                db.session.execute(
-                    text(f'ALTER TABLE "users" ADD COLUMN {col} {dtype};')
-                )
-                db.session.commit()
-                print(f"✔ Added column: {col}")
-
-    except Exception as e:
-        print("❌ Column auto-fix failed (likely SQLite dev):", e)
-
-
-# --------------------------------------------------------------------
 # DEMO DATA SEEDING
 # --------------------------------------------------------------------
-def load_demo_reports():
-    """
-    Reads demo_reports.json from the SAME FOLDER as app.py.
-    """
-    try:
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        json_path = os.path.join(base_dir, "demo_reports.json")
-
-        if not os.path.exists(json_path):
-            print("⚠ demo_reports.json not found, skipping seeding.")
-            return []
-
-        with open(json_path, "r") as f:
-            data = json.load(f)
-
-        print(f"✔ Loaded {len(data)} demo report(s) from demo_reports.json")
-        return data
-
-    except Exception as e:
-        print("❌ Failed to load demo_reports.json:", e)
-        return []
+DEMO_PATH = os.path.join(os.path.dirname(__file__), "demo_reports.json")
 
 
 def seed_demo_reports():
     """
-    Insert demo reports only if the Report table is empty.
+    Seed the Report table from demo_reports.json if the table is empty.
+    Safe to call on every startup – it checks count() first.
     """
     try:
-        count = Report.query.count()
-        if count > 0:
-            print(f"✔ Reports already exist in DB (count={count}), skipping seed.")
+        if Report.query.count() > 0:
+            print("✔ Reports already exist, skipping demo seed.")
             return
 
-        demo_reports = load_demo_reports()
-        if not demo_reports:
+        if not os.path.exists(DEMO_PATH):
+            print("⚠ demo_reports.json not found, skipping seed.")
             return
 
-        for r in demo_reports:
+        with open(DEMO_PATH, "r") as f:
+            data = json.load(f)
+
+        print(f"⚠ Seeding {len(data)} demo reports...")
+        for r in data:
             # Parse timestamp from gps_metadata
-            ts_str = r.get("gps_metadata", {}).get("timestamp")
-            try:
-                date_val = datetime.strptime(ts_str, "%Y-%m-%dT%H:%M:%SZ") if ts_str else datetime.utcnow()
-            except Exception:
+            ts = r.get("gps_metadata", {}).get("timestamp")
+            if ts:
+                try:
+                    date_val = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ")
+                except Exception:
+                    date_val = datetime.utcnow()
+            else:
                 date_val = datetime.utcnow()
 
             report = Report(
@@ -173,18 +164,18 @@ def seed_demo_reports():
             db.session.add(report)
 
         db.session.commit()
-        print("✔ Demo reports seeded into Report table.")
+        print("✔ Demo reports seeded successfully.")
 
     except Exception as e:
-        print("❌ Failed to seed demo reports:", e)
+        print("❌ Error seeding demo reports:", e)
 
 
 # --------------------------------------------------------------------
-# INITIALIZE DB + SEED
+# INITIALIZE DB
 # --------------------------------------------------------------------
 with app.app_context():
     db.create_all()
-    add_missing_user_columns()
+    add_missing_columns()
     seed_demo_reports()
 
 
@@ -247,6 +238,7 @@ def login_submit():
         data = request.get_json(silent=True)
         if not data:
             return jsonify({"error": "Invalid request"}), 400
+
         username = data.get("username")
         password = data.get("password")
 
@@ -313,7 +305,7 @@ def print_reports():
 
 
 # --------------------------------------------------------------------
-# REPORTS API (NOW SUPPORTS PROVINCE + MUNICIPALITY FILTERS)
+# REPORTS API
 # --------------------------------------------------------------------
 @app.route("/api/barangays", methods=["GET"])
 def get_barangays():
@@ -344,6 +336,7 @@ def get_reports():
     if infestation_type:
         query = query.filter_by(infestation_type=infestation_type)
 
+    # date filtering
     try:
         if start_date:
             query = query.filter(

@@ -63,7 +63,7 @@
         <img src="/static/images/snail-logo.png" style="height:55px;width:55px;border-radius:50%;object-fit:cover;">
         <div class="ms-2">
             <h4 class="fw-bold m-0">GASsight Dashboard</h4>
-            <small class="text-muted">Golden Apple Snail Infestation Tracking & Visualization</small>
+            <small class="text-muted">Golden Apple Snail Infestation Tracking &amp; Visualization</small>
         </div>
     </div>
 
@@ -132,23 +132,17 @@
 
         <div class="col-md-2">
             <label>Province</label>
-            <select id="provinceFilter" class="form-select">
-                <option value="All">All</option>
-            </select>
+            <select id="provinceFilter" class="form-select"></select>
         </div>
 
         <div class="col-md-2">
             <label>Municipality</label>
-            <select id="municipalityFilter" class="form-select">
-                <option value="All">All</option>
-            </select>
+            <select id="municipalityFilter" class="form-select"></select>
         </div>
 
         <div class="col-md-2">
             <label>Barangay</label>
-            <select id="barangayFilter" class="form-select">
-                <option value="All">All</option>
-            </select>
+            <select id="barangayFilter" class="form-select"></select>
         </div>
 
         <div class="col-md-2">
@@ -173,6 +167,9 @@
             </select>
         </div>
 
+    </div>
+
+    <div class="row g-3 mt-2">
         <div class="col-md-2">
             <label>Start Date</label>
             <input id="startDate" type="date" class="form-control">
@@ -183,10 +180,9 @@
             <input id="endDate" type="date" class="form-control">
         </div>
 
-        <div class="col-md-1 d-flex align-items-end">
+        <div class="col-md-2 d-flex align-items-end">
             <button id="filterBtn" class="btn btn-success w-100">Apply</button>
         </div>
-
     </div>
 </div>
 
