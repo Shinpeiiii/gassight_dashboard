@@ -26,8 +26,9 @@ function initMap() {
 }
 
 
+
 // -----------------------------------------------
-// LOAD FILTER OPTIONS
+// LOAD FILTER DROPDOWNS
 // -----------------------------------------------
 async function loadFilterDropdowns() {
     const barangaySelect = document.getElementById("barangayFilter");
@@ -44,10 +45,12 @@ async function loadFilterDropdowns() {
             opt.textContent = b;
             barangaySelect.appendChild(opt);
         });
+
     } catch (err) {
         console.error("Failed loading barangays:", err);
     }
 }
+
 
 
 // -----------------------------------------------
@@ -56,9 +59,8 @@ async function loadFilterDropdowns() {
 async function fetchReports() {
     const barangay = document.getElementById("barangayFilter").value;
     const severity = document.getElementById("severityFilter").value;
-    const infestationType = document.getElementById("infestationFilter") 
-        ? document.getElementById("infestationFilter").value 
-        : "All";
+    const infestationType = document.getElementById("infestationFilter").value;
+
     const start = document.getElementById("startDate").value;
     const end = document.getElementById("endDate").value;
 
@@ -70,9 +72,15 @@ async function fetchReports() {
     if (start) params.append("start_date", start);
     if (end) params.append("end_date", end);
 
-    const res = await fetch(`/api/reports?${params.toString()}`);
-    return await res.json();
+    const url = `/api/reports?${params.toString()}`;
+    console.log("Fetching:", url);
+
+    const res = await fetch(url);
+    const data = await res.json();
+
+    return data;
 }
+
 
 
 // -----------------------------------------------
@@ -82,22 +90,31 @@ async function updateReports() {
     window.allReports = await fetchReports();
     updateHeatmap();
     updateMarkers();
-    updateTable();
     updateKPIs();
     updateCharts();
     updateLastUpdated();
 }
 
 
+
 // -----------------------------------------------
-// UPDATE HEATMAP
+// HEATMAP
 // -----------------------------------------------
 function updateHeatmap() {
     if (heatLayer) heatLayer.remove();
 
     const points = window.allReports
         .filter(r => r.lat && r.lng)
-        .map(r => [r.lat, r.lng, r.severity === "High" ? 1.0 : r.severity === "Moderate" ? 0.6 : 0.3]);
+        .map(r => [
+            r.lat,
+            r.lng,
+
+            // heat intensity based on severity
+            r.severity === "Critical" ? 1.0 :
+            r.severity === "High" ? 0.9 :
+            r.severity === "Moderate" ? 0.6 :
+            0.3
+        ]);
 
     heatLayer = L.heatLayer(points, {
         radius: 25,
@@ -107,8 +124,9 @@ function updateHeatmap() {
 }
 
 
+
 // -----------------------------------------------
-// UPDATE MARKERS
+// MARKERS
 // -----------------------------------------------
 function updateMarkers() {
     markersLayer.clearLayers();
@@ -116,22 +134,26 @@ function updateMarkers() {
     window.allReports.forEach(r => {
         if (!r.lat || !r.lng) return;
 
-        const color = r.severity === "High" ? "red" :
-                      r.severity === "Moderate" ? "orange" : "green";
+        let color =
+            r.severity === "Critical" ? "#6a00ff" :
+            r.severity === "High" ? "red" :
+            r.severity === "Moderate" ? "orange" :
+            "green";
 
         const marker = L.circleMarker([r.lat, r.lng], {
-            radius: 8,
+            radius: 9,
             color: color,
             fillColor: color,
-            fillOpacity: 0.8,
+            fillOpacity: 0.85,
         });
 
         marker.bindPopup(`
             <strong>${r.barangay}, ${r.municipality}</strong><br>
-            Severity: <b>${r.severity}</b><br>
-            Type: ${r.infestation_type || "Unknown"}<br>
+            <small>${r.infestation_type}</small><br>
+            <b>Severity:</b> ${r.severity}<br>
+            <b>Date:</b> ${r.date}<br>
             <img src="${r.photo || '/static/icons/icon-192.png'}" 
-                 style="width:100px;border-radius:5px;margin-top:4px;">
+                style="width:120px;border-radius:5px;margin-top:4px;">
         `);
 
         markersLayer.addLayer(marker);
@@ -139,63 +161,43 @@ function updateMarkers() {
 }
 
 
-// -----------------------------------------------
-// UPDATE TABLE
-// -----------------------------------------------
-function updateTable() {
-    const tbody = document.querySelector("#reports-table tbody");
-    tbody.innerHTML = "";
-
-    window.allReports.forEach(r => {
-        const tr = document.createElement("tr");
-        if (r.severity === "High") tr.classList.add("high-row");
-
-        tr.innerHTML = `
-            <td>${r.date}</td>
-            <td>${r.reporter || "Unknown"}</td>
-            <td>${r.barangay}, ${r.municipality}</td>
-            <td><span class="badge bg-${r.severity === "High" ? "danger" : r.severity === "Moderate" ? "warning" : "success"}">${r.severity}</span></td>
-            <td><img src="${r.photo || '/static/icons/icon-192.png'}" style="width:50px;height:50px;border-radius:6px;object-fit:cover"></td>
-            <td>${r.status}</td>
-            <td><button class="btn btn-sm btn-outline-primary" onclick="focusReport(${r.lat},${r.lng})">Locate</button></td>
-        `;
-
-        tbody.appendChild(tr);
-    });
-}
-
-function focusReport(lat, lng) {
-    if (!lat || !lng) return;
-    map.setView([lat, lng], 15);
-}
-
 
 // -----------------------------------------------
-// UPDATE KPIs
+// KPIs
 // -----------------------------------------------
 function updateKPIs() {
     document.getElementById("totalSightings").innerText = window.allReports.length;
 
-    const activeHotspots = window.allReports.filter(r => r.severity === "High").length;
+    const activeHotspots = window.allReports.filter(r =>
+        r.severity === "High" || r.severity === "Critical"
+    ).length;
     document.getElementById("activeHotspots").innerText = activeHotspots;
 
-    const reporters = new Set(window.allReports.map(r => r.reporter));
+    const reporters = new Set(window.allReports.map(r => r.reporter || "Unknown"));
     document.getElementById("activeReporters").innerText = reporters.size;
 
     document.getElementById("avgResponse").innerText = "0";
 }
 
 
+
 // -----------------------------------------------
-// UPDATE CHARTS
+// CHARTS
 // -----------------------------------------------
 function updateCharts() {
-    const severityCount = { Low: 0, Moderate: 0, High: 0 };
+    const severityCount = {
+        Low: 0,
+        Moderate: 0,
+        High: 0,
+        Critical: 0,
+    };
+
     const barangayCount = {};
     const weekly = {};
 
     window.allReports.forEach(r => {
-        if (severityCount[r.severity] !== undefined) severityCount[r.severity]++;
+        if (severityCount[r.severity] !== undefined)
+            severityCount[r.severity]++;
 
         barangayCount[r.barangay] = (barangayCount[r.barangay] || 0) + 1;
 
@@ -209,19 +211,21 @@ function updateCharts() {
 }
 
 
+
 function drawSeverityChart(data) {
     if (severityChart) severityChart.destroy();
 
     severityChart = new Chart(document.getElementById("severityChart"), {
         type: "pie",
         data: {
-            labels: ["Low", "Moderate", "High"],
+            labels: ["Low", "Moderate", "High", "Critical"],
             datasets: [{
-                data: [data.Low, data.Moderate, data.High],
+                data: [data.Low, data.Moderate, data.High, data.Critical],
             }]
         }
     });
 }
+
 
 
 function drawBarangayChart(data) {
@@ -239,10 +243,12 @@ function drawBarangayChart(data) {
 }
 
 
+
 function drawTrendChart(data) {
     if (trendChart) trendChart.destroy();
 
     const labels = Object.keys(data).sort();
+
     trendChart = new Chart(document.getElementById("trendChart"), {
         type: "line",
         data: {
@@ -255,8 +261,9 @@ function drawTrendChart(data) {
 }
 
 
+
 // -----------------------------------------------
-// AUTO-REFRESH
+// AUTO REFRESH
 // -----------------------------------------------
 function updateLastUpdated() {
     document.getElementById("lastUpdate").innerText = new Date().toLocaleTimeString();
@@ -271,6 +278,7 @@ function startAutoRefresh(seconds) {
 }
 
 
+
 // -----------------------------------------------
 // INITIALIZE
 // -----------------------------------------------
@@ -281,11 +289,9 @@ window.addEventListener("load", async () => {
 
     document.getElementById("filterBtn").onclick = updateReports;
 
-    // Auto-refresh dropdown
     document.getElementById("refreshInterval").addEventListener("change", (e) => {
         startAutoRefresh(e.target.value);
     });
 
-    // Manual refresh button
     document.getElementById("manualRefresh").onclick = updateReports;
 });
