@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GASsight Dashboard</title>
 
-    <!-- Bootstrap -->
+    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 
     <!-- Leaflet CSS -->
@@ -25,7 +25,10 @@
         .kpi-yellow { border-left-color:#ffc107; }
         .kpi-blue { border-left-color:#0d6efd; }
 
-        #map { height: 430px; border-radius: 10px; }
+        #map { 
+            height: 430px; 
+            border-radius: 10px; 
+        }
 
         .panel-box {
             background: white;
@@ -46,13 +49,13 @@
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-    <!-- Heatmap plugin -->
+    <!-- Heatmap plugin (must be after Leaflet) -->
     <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
 
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-    <!-- Bootstrap JS -->
+    <!-- Bootstrap JS (for modals etc.) -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </head>
 
@@ -93,48 +96,48 @@
         <div class="col-md-3">
             <div class="kpi-card">
                 <h6>Total Sightings</h6>
-                <h2 id="totalSightings">0</h2>
+                <h2 id="totalSightings" class="fw-bold">0</h2>
             </div>
         </div>
         <div class="col-md-3">
             <div class="kpi-card kpi-red">
                 <h6>High-Risk Hotspots</h6>
-                <h2 id="activeHotspots">0</h2>
+                <h2 id="activeHotspots" class="fw-bold">0</h2>
             </div>
         </div>
         <div class="col-md-3">
             <div class="kpi-card kpi-yellow">
                 <h6>Active Reporters</h6>
-                <h2 id="activeReporters">0</h2>
+                <h2 id="activeReporters" class="fw-bold">0</h2>
             </div>
         </div>
         <div class="col-md-3">
             <div class="kpi-card kpi-blue">
                 <h6>Avg Response (hrs)</h6>
-                <h2 id="avgResponse">0</h2>
+                <h2 id="avgResponse" class="fw-bold">0</h2>
             </div>
         </div>
     </div>
 </div>
 
 
-<!-- FILTERS -->
+<!-- FILTERS (top) -->
 <div class="container mt-4">
     <div class="row g-3">
         <div class="col-md-2">
-            <label>Province</label>
+            <label class="form-label">Province</label>
             <select id="provinceFilter" class="form-select"></select>
         </div>
         <div class="col-md-2">
-            <label>Municipality</label>
+            <label class="form-label">Municipality</label>
             <select id="municipalityFilter" class="form-select"></select>
         </div>
         <div class="col-md-2">
-            <label>Barangay</label>
+            <label class="form-label">Barangay</label>
             <select id="barangayFilter" class="form-select"></select>
         </div>
         <div class="col-md-2">
-            <label>Severity</label>
+            <label class="form-label">Severity</label>
             <select id="severityFilter" class="form-select">
                 <option value="All">All</option>
                 <option value="Pending">Pending</option>
@@ -145,7 +148,7 @@
             </select>
         </div>
         <div class="col-md-2">
-            <label>Infestation</label>
+            <label class="form-label">Infestation Type</label>
             <select id="infestationFilter" class="form-select">
                 <option value="All">All</option>
                 <option value="Golden Apple Snail (GAS)">Golden Apple Snail (GAS)</option>
@@ -158,11 +161,11 @@
 
     <div class="row g-3 mt-2">
         <div class="col-md-2">
-            <label>Start</label>
+            <label class="form-label">Start Date</label>
             <input id="startDate" type="date" class="form-control">
         </div>
         <div class="col-md-2">
-            <label>End</label>
+            <label class="form-label">End Date</label>
             <input id="endDate" type="date" class="form-control">
         </div>
         <div class="col-md-2 d-flex align-items-end">
@@ -172,7 +175,7 @@
 </div>
 
 
-<!-- HEATMAP -->
+<!-- HEATMAP PANEL (full width below filters) -->
 <div class="container mt-4">
     <div class="panel-box">
         <h5 class="fw-bold mb-3">Infestation Heatmap</h5>
@@ -186,19 +189,19 @@
     <div class="row g-3">
         <div class="col-md-4">
             <div class="chart-box">
-                <h6>Severity</h6>
+                <h6 class="fw-bold mb-2">Severity Distribution</h6>
                 <canvas id="severityChart"></canvas>
             </div>
         </div>
         <div class="col-md-4">
             <div class="chart-box">
-                <h6>Barangay</h6>
+                <h6 class="fw-bold mb-2">Reports by Barangay</h6>
                 <canvas id="barangayChart"></canvas>
             </div>
         </div>
         <div class="col-md-4">
             <div class="chart-box">
-                <h6>Weekly Trend</h6>
+                <h6 class="fw-bold mb-2">Weekly Trend</h6>
                 <canvas id="trendChart"></canvas>
             </div>
         </div>
@@ -246,7 +249,7 @@
 </div>
 
 
-<!-- EDIT SEVERITY MODAL -->
+<!-- EDIT SEVERITY MODAL (ADMIN) -->
 <div class="modal fade" id="severityModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
@@ -282,8 +285,20 @@
 
 
 <!-- FOOTER -->
-<div class="text-center text-muted p-3 mt-4">© 2025 GASsight | Dashboard System</div>
+<div class="text-center text-muted p-3 mt-4">
+    © 2025 GASsight | Dashboard System
+</div>
 
+<!-- DASHBOARD LOGIC -->
 <script src="/static/js/dashboard.js"></script>
+
+<script>
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker
+    .register("/static/service-worker.js")
+    .catch(err => console.error("SW failed:", err));
+}
+</script>
+
 </body>
 </html>

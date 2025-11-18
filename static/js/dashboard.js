@@ -7,7 +7,6 @@ let markersLayer = L.layerGroup();
 window.allReports = [];
 
 let severityChart, barangayChart, trendChart;
-
 let autoRefreshTimer = null;
 
 
@@ -15,6 +14,7 @@ let autoRefreshTimer = null;
 // INIT MAP
 // -----------------------------------------------
 function initMap() {
+    // Center roughly around Ilocos Sur
     map = L.map("map").setView([17.25, 120.45], 9);
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -71,7 +71,7 @@ async function loadFilterDropdowns() {
 
 
 // -----------------------------------------------
-// FETCH REPORTS
+// FETCH REPORTS (WITH FILTERS)
 // -----------------------------------------------
 async function fetchReports() {
     const params = new URLSearchParams();
@@ -86,7 +86,9 @@ async function fetchReports() {
 
     for (let key in filters) {
         const value = document.getElementById(filters[key]).value;
-        if (value !== "All") params.append(key, value);
+        if (value !== "All") {
+            params.append(key, value);
+        }
     }
 
     const start = document.getElementById("startDate").value;
@@ -123,7 +125,6 @@ async function updateReports() {
 }
 
 
-
 // -----------------------------------------------
 // HEATMAP
 // -----------------------------------------------
@@ -133,13 +134,14 @@ function updateHeatmap() {
     const points = window.allReports
         .filter(r => r.lat && r.lng)
         .map(r => {
-            const sev = r.severity;
-            const weight =
-                sev === "Critical" ? 1.0 :
-                sev === "High" ? 0.9 :
-                sev === "Moderate" ? 0.6 :
-                sev === "Low" ? 0.3 :
-                null; // Pending or unknown not included in heatmap
+            const sev = r.severity || "Pending";
+            let weight = null;
+
+            if (sev === "Critical") weight = 1.0;
+            else if (sev === "High") weight = 0.9;
+            else if (sev === "Moderate") weight = 0.6;
+            else if (sev === "Low") weight = 0.3;
+            // Pending / unknown => no heat weight
 
             if (weight === null) return null;
             return [r.lat, r.lng, weight];
@@ -164,13 +166,13 @@ function updateMarkers() {
         if (!r.lat || !r.lng) return;
 
         const sev = r.severity || "Pending";
+        let color;
 
-        let color =
-            sev === "Critical" ? "#6a00ff" :
-            sev === "High" ? "red" :
-            sev === "Moderate" ? "orange" :
-            sev === "Low" ? "green" :
-            "#6c757d"; // Pending
+        if (sev === "Critical") color = "#6a00ff";
+        else if (sev === "High") color = "red";
+        else if (sev === "Moderate") color = "orange";
+        else if (sev === "Low") color = "green";
+        else color = "#6c757d"; // Pending
 
         const marker = L.circleMarker([r.lat, r.lng], {
             radius: 9,
@@ -207,6 +209,7 @@ function updateKPIs() {
     const reporters = new Set(window.allReports.map(r => r.reporter || "Unknown"));
     document.getElementById("activeReporters").innerText = reporters.size;
 
+    // Placeholder for now
     document.getElementById("avgResponse").innerText = "0";
 }
 
@@ -220,7 +223,10 @@ function updateCharts() {
     const weekly = {};
 
     window.allReports.forEach(r => {
-        if (severityCount[r.severity] !== undefined) severityCount[r.severity]++;
+        if (severityCount[r.severity] !== undefined) {
+            severityCount[r.severity]++;
+        }
+
         if (r.barangay) {
             barangayCount[r.barangay] = (barangayCount[r.barangay] || 0) + 1;
         }
@@ -244,7 +250,9 @@ function drawSeverityChart(data) {
         type: "pie",
         data: {
             labels: ["Low", "Moderate", "High", "Critical"],
-            datasets: [{ data: [data.Low, data.Moderate, data.High, data.Critical] }]
+            datasets: [{
+                data: [data.Low, data.Moderate, data.High, data.Critical],
+            }]
         }
     });
 }
@@ -257,7 +265,9 @@ function drawBarangayChart(data) {
         type: "bar",
         data: {
             labels: Object.keys(data),
-            datasets: [{ data: Object.values(data) }]
+            datasets: [{
+                data: Object.values(data),
+            }]
         }
     });
 }
@@ -272,15 +282,16 @@ function drawTrendChart(data) {
         type: "line",
         data: {
             labels: labels,
-            datasets: [{ data: labels.map(d => data[d]) }]
+            datasets: [{
+                data: labels.map(d => data[d]),
+            }]
         }
     });
 }
 
 
-
 // -----------------------------------------------
-// RECENT REPORTS TABLE + PHOTO + ADMIN SEVERITY
+// RECENT REPORTS TABLE + PHOTO + EDIT
 // -----------------------------------------------
 function updateRecentReportsTable() {
     const tbody = document.getElementById("recentReportsTable");
@@ -307,7 +318,7 @@ function updateRecentReportsTable() {
         const tr = document.createElement("tr");
         tr.innerHTML = `
             <td class="text-center">
-                <img src="${photo}" 
+                <img src="${photo}"
                      class="img-thumbnail shadow-sm"
                      style="width:60px;height:60px;object-fit:cover;cursor:pointer;border-radius:6px;"
                      onclick="openPhotoModal('${photo}')">
@@ -332,14 +343,13 @@ function updateRecentReportsTable() {
                 </button>
             </td>
         `;
-
         tbody.appendChild(tr);
     });
 }
 
 
 // -----------------------------------------------
-// MODALS
+// PHOTO MODAL
 // -----------------------------------------------
 function openPhotoModal(photoUrl) {
     document.getElementById("modalPhoto").src = photoUrl;
@@ -347,7 +357,9 @@ function openPhotoModal(photoUrl) {
 }
 
 
-// --- Severity Modal helpers ---
+// -----------------------------------------------
+// SEVERITY MODAL (ADMIN)
+// -----------------------------------------------
 function openSeverityModalFromButton(btn) {
     const id = btn.getAttribute("data-report-id");
     const severity = btn.getAttribute("data-current-severity") || "Pending";
@@ -400,7 +412,7 @@ async function saveSeverity() {
         const modal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
         modal.hide();
 
-        updateReports(); // refresh dashboard
+        await updateReports();
 
     } catch (err) {
         console.error("Failed to update severity:", err);
