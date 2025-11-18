@@ -26,7 +26,7 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev_secret_key")
 # --------------------------------------------------------------------
 db_url = os.environ.get("DATABASE_URL", "sqlite:///data.db")
 
-# Render Postgres: postgres:// → postgresql:// for SQLAlchemy
+# Render Postgres: convert postgres:// → postgresql://
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
@@ -37,9 +37,47 @@ db = SQLAlchemy(app)
 
 
 # --------------------------------------------------------------------
+# AUTO FIX BROKEN USER TABLE
+# --------------------------------------------------------------------
+def fix_user_table():
+    with app.app_context():
+        try:
+            engine = db.engine
+
+            # Check if "users" table exists
+            table_exists = engine.dialect.has_table(engine.connect(), "users")
+
+            if not table_exists:
+                print("⚠ Users table missing. Creating new table...")
+                db.create_all()
+                return
+
+            # Check columns
+            result = engine.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='users';"
+            ).fetchall()
+            columns = [r[0] for r in result]
+
+            if "password" not in columns:
+                print("⚠ Missing 'password' column. Recreating users table...")
+                engine.execute('DROP TABLE IF EXISTS "users" CASCADE;')
+                db.create_all()
+                print("✔ Users table recreated.")
+
+        except Exception as e:
+            print("❌ Error fixing users table:", e)
+
+
+# Execute auto-repair
+fix_user_table()
+
+
+# --------------------------------------------------------------------
 # MODELS
 # --------------------------------------------------------------------
 class User(db.Model):
+    __tablename__ = "users"  # important fix
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(120), unique=True)
     password = db.Column(db.String(120))
@@ -61,11 +99,8 @@ class Report(db.Model):
 
 
 # --------------------------------------------------------------------
-# DB INIT + DEMO SEEDING
+# DEMO DATA SEED
 # --------------------------------------------------------------------
-with app.app_context():
-    db.create_all()
-
 DEMO_REPORTS = []
 demo_file_path = os.path.join(os.path.dirname(__file__), "demo_reports.json")
 
@@ -101,19 +136,20 @@ def seed_demo_reports():
         db.session.add(report)
 
     db.session.commit()
-    print("✔ Demo reports inserted successfully.")
+    print("✔ Demo reports inserted.")
 
 
 with app.app_context():
+    db.create_all()
     seed_demo_reports()
 
 
 # --------------------------------------------------------------------
-# AUTH + SESSION HELPERS
+# AUTH ROUTES
 # --------------------------------------------------------------------
 @app.route("/signup", methods=["POST"])
 def signup():
-    data = request.json
+    data = request.get_json(silent=True)
     if not data:
         return jsonify({"error": "Invalid request"}), 400
 
@@ -135,44 +171,52 @@ def signup():
 
 @app.route("/api/register", methods=["POST"])
 def api_register():
-    # Same logic as /signup
     return signup()
 
 
-@app.route("/login", methods=["GET", "POST"])
-def login_page():
-    if request.method == "GET":
-        # If already logged in → dashboard
-        if "user" in session:
-            return redirect("/")
-        return render_template("login.html")
+# ------------------------------ LOGIN FIXED ------------------------------
+@app.route("/login", methods=["POST"])
+def login_submit():
 
-    # POST → HTML form login
-    username = request.form.get("username")
-    password = request.form.get("password")
+    # HTML form login
+    if request.form:
+        username = request.form.get("username")
+        password = request.form.get("password")
 
-    if not username or not password:
-        return render_template("login.html", error="Please enter username and password")
+    # JSON login
+    else:
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({"error": "Invalid request"}), 400
+        username = data.get("username")
+        password = data.get("password")
 
     user = User.query.filter_by(username=username, password=password).first()
+
     if not user:
-        return render_template("login.html", error="Invalid username or password")
+        return jsonify({"success": False, "error": "Invalid credentials"}), 401
 
     session["user"] = username
+
+    # Return JSON for API logins
+    if request.is_json:
+        return jsonify({"success": True})
+
+    # Redirect for HTML logins
     return redirect("/")
 
 
+@app.route("/login")
+def login_page():
+    if "user" in session:
+        return redirect("/")
+    return render_template("login.html")
 
 
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect("/login")
-
-
-@app.route("/api/check-session")
-def check_session():
-    return jsonify({"logged_in": "user" in session})
 
 
 # --------------------------------------------------------------------
@@ -197,7 +241,6 @@ def no_access_page():
 
 @app.route("/offline.html")
 def offline_page():
-    # for service worker offline fallback
     return render_template("offline.html")
 
 
@@ -205,19 +248,16 @@ def offline_page():
 def print_reports():
     if "user" not in session:
         return redirect("/login")
-
     reports = Report.query.order_by(Report.date.desc()).all()
-    generated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    return render_template("reports_print.html", reports=reports, generated=generated)
+    return render_template("reports_print.html", reports=reports, now=datetime.utcnow)
 
 
 # --------------------------------------------------------------------
-# APIs
+# API ROUTES
 # --------------------------------------------------------------------
 @app.route("/api/barangays", methods=["GET"])
 def get_barangays():
-    brgys = db.session.query(Report.barangay).distinct().all()
-    brgys = [b[0] for b in brgys]
+    brgys = [b[0] for b in db.session.query(Report.barangay).distinct().all()]
     return jsonify(brgys)
 
 
@@ -233,54 +273,46 @@ def get_reports():
 
     if barangay:
         query = query.filter_by(barangay=barangay)
-
     if severity:
         query = query.filter_by(severity=severity)
-
     if infestation_type:
         query = query.filter_by(infestation_type=infestation_type)
 
-    if start_date:
-        try:
+    # date filtering
+    try:
+        if start_date:
             d = datetime.strptime(start_date, "%Y-%m-%d")
             query = query.filter(Report.date >= d)
-        except Exception as e:
-            print("Invalid start_date:", e)
-
-    if end_date:
-        try:
+        if end_date:
             d = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
             query = query.filter(Report.date <= d)
-        except Exception as e:
-            print("Invalid end_date:", e)
+    except:
+        pass
 
     reports = query.order_by(Report.date.desc()).all()
 
-    output = []
-    for r in reports:
-        output.append(
-            {
-                "id": r.id,
-                "reporter": r.reporter,
-                "province": r.province,
-                "municipality": r.municipality,
-                "barangay": r.barangay,
-                "severity": r.severity,
-                "infestation_type": r.infestation_type,
-                "lat": r.lat,
-                "lng": r.lng,
-                "description": r.description,
-                "photo": r.photo,
-                "date": r.date.strftime("%Y-%m-%d %H:%M:%S") if r.date else "",
-                "status": "Pending",
-            }
-        )
-
-    return jsonify(output)
+    return jsonify([
+        {
+            "id": r.id,
+            "reporter": r.reporter,
+            "province": r.province,
+            "municipality": r.municipality,
+            "barangay": r.barangay,
+            "severity": r.severity,
+            "infestation_type": r.infestation_type,
+            "lat": r.lat,
+            "lng": r.lng,
+            "description": r.description,
+            "photo": r.photo,
+            "date": r.date.strftime("%Y-%m-%d %H:%M:%S"),
+            "status": "Pending",
+        }
+        for r in reports
+    ])
 
 
 # --------------------------------------------------------------------
-# LOCAL DEV ENTRY POINT (Render uses gunicorn)
+# RENDER ENTRY POINT
 # --------------------------------------------------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
