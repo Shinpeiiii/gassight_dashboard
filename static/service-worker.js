@@ -1,32 +1,24 @@
-// static/service-worker.js
-
-const CACHE_NAME = "gassight-cache-v7";
-
-// We serve this built-in fallback page instead of your missing /offline route
+const CACHE_NAME = "gassight-cache-v1";
 const OFFLINE_FALLBACK = "/offline.html";
 
 const OFFLINE_URLS = [
   "/",
   "/login",
-  "/dashboard",
   OFFLINE_FALLBACK,
   "/static/manifest.json",
-  "/static/icons/icon-192.png",
-  "/static/icons/icon-512.png"
+  "/static/images/snail-logo.png",
 ];
 
-// INSTALL — PRE-CACHE CORE FILES
+// INSTALL
 self.addEventListener("install", (event) => {
-  console.log("[SW] Installing...");
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(OFFLINE_URLS))
   );
   self.skipWaiting();
 });
 
-// ACTIVATE — REMOVE OLD CACHES
+// ACTIVATE
 self.addEventListener("activate", (event) => {
-  console.log("[SW] Activating...");
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
@@ -35,53 +27,47 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
-// FETCH HANDLER
+// FETCH
 self.addEventListener("fetch", (event) => {
-  const { request } = event;
-  const url = new URL(request.url);
+  const req = event.request;
+  const url = new URL(req.url);
 
-  // Ignore extension requests
   if (url.protocol.startsWith("chrome-extension")) return;
-  if (request.method !== "GET") return;
+  if (req.method !== "GET") return;
 
-  // ---- API REPORTS CACHE ----
+  // cache + network for reports
   if (url.pathname.startsWith("/api/reports")) {
     event.respondWith(
-      fetch(request)
+      fetch(req)
         .then((res) => {
-          const clone = res.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, res.clone()));
           return res;
         })
-        .catch(() => caches.match(request))
+        .catch(() => caches.match(req))
     );
     return;
   }
 
-  // ---- Don't cache write API routes ----
   if (url.pathname.startsWith("/api/")) {
-    event.respondWith(fetch(request).catch(() => caches.match(OFFLINE_FALLBACK)));
+    event.respondWith(
+      fetch(req).catch(() => caches.match(OFFLINE_FALLBACK))
+    );
     return;
   }
 
-  // ---- Cache-first for static files ----
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) {
-        return cached;
-      }
+    caches.match(req).then((cached) => {
+      if (cached) return cached;
 
-      return fetch(request)
+      return fetch(req)
         .then((res) => {
           if (res.status === 200) {
-            const clone = res.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+            caches.open(CACHE_NAME).then((cache) => cache.put(req, res.clone()));
           }
           return res;
         })
         .catch(() => {
-          // If navigation fails → show offline page
-          if (request.mode === "navigate") {
+          if (req.mode === "navigate") {
             return caches.match(OFFLINE_FALLBACK);
           }
         });

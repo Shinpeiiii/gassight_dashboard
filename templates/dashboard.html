@@ -227,5 +227,13 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="/static/js/dashboard.js"></script>
 
+<script>
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker
+    .register("/static/service-worker.js")
+    .catch(err => console.error("SW failed:", err));
+}
+</script>
+
 </body>
 </html>
