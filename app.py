@@ -1,53 +1,54 @@
 import os
 import uuid
-from datetime import datetime, timedelta
 import io
 import csv
 import random
-
-import psycopg2
-
-def get_db():
-    return psycopg2.connect(
-        host="localhost",
-        database="your_database",
-        user="your_username",
-        password="your_password"
-    )
-
+import json
+from datetime import datetime, timedelta
 
 import requests
 from flask import (
-    Flask, render_template, jsonify, send_from_directory,
-    request, redirect, url_for, flash, send_file, make_response
+    Flask,
+    render_template,
+    jsonify,
+    send_from_directory,
+    request,
+    redirect,
+    url_for,
+    flash,
+    send_file,
+    make_response,
 )
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
-    LoginManager, UserMixin, login_user, logout_user,
-    login_required, current_user
+    LoginManager,
+    UserMixin,
+    login_user,
+    logout_user,
+    login_required,
+    current_user,
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from flask_jwt_extended import (
-    JWTManager, create_access_token, create_refresh_token,
-    jwt_required, get_jwt_identity, get_jwt
+    JWTManager,
+    create_access_token,
+    create_refresh_token,
+    jwt_required,
+    get_jwt_identity,
+    get_jwt,
 )
 from flask_cors import CORS
-
-# SQLAlchemy helpers for migrations
 from sqlalchemy import text, inspect
-
-# optional Excel support
-try:
-    from openpyxl import Workbook
-except ImportError:  # optional dependency
-    Workbook = None
+import click
 
 # =================================================
 # APP INITIALIZATION
 # =================================================
+
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
+# Allow mobile app to call /api/*
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-key")
@@ -79,13 +80,15 @@ def is_token_revoked(jwt_header, jwt_payload):
 # =================================================
 # DATABASE CONFIGURATION
 # =================================================
+
 db_url = os.environ.get("DATABASE_URL")
 
 if db_url and db_url.startswith("postgres://"):
+    # Render / old Heroku style
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
 if not db_url:
-    print("⚠️ WARNING: No DATABASE_URL found. Using SQLite.")
+    print("⚠️ WARNING: No DATABASE_URL found. Using local SQLite gassight.db")
     db_url = "sqlite:///gassight.db"
 
 app.config["SQLALCHEMY_DATABASE_URI"] = db_url
@@ -93,51 +96,10 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
-import click
-from flask import Flask
-from datetime import datetime
-
-# Add this under your existing DB connection
-@app.cli.command("seed-demo")
-def seed_demo():
-    """Seed demo reports into the database."""
-    conn = get_db()
-    cursor = conn.cursor()
-
-    demo_reports = [
-        ("Stephen", "Ilocos Sur", "Vigan City", "Barangay I", "High",
-         "Golden Apple Snail (GAS)", 17.5747, 120.3869,
-         "Severe snail infestation near rice fields.",
-         datetime.now()),
-
-        ("Maria", "Ilocos Sur", "Santa", "Barangay Cabaroan", "Moderate",
-         "Brown Plant Hopper (BPH)", 17.5400, 120.3800,
-         "Crop damage observed in multiple paddies.",
-         datetime.now()),
-
-        ("Juan", "Ilocos Sur", "Candon City", "Barangay Tablac", "Low",
-         "Rice Black Bug (RBB)", 17.2000, 120.4500,
-         "Minor bug presence noted.",
-         datetime.now()),
-    ]
-
-    cursor.executemany("""
-        INSERT INTO reports (
-            reporter, province, municipality, barangay,
-            severity, infestation_type, lat, lng,
-            description, timestamp
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, demo_reports)
-
-    conn.commit()
-    conn.close()
-
-    click.echo("✔ Demo reports inserted successfully!")
-
-
 # =================================================
 # UPLOADS
 # =================================================
+
 app.config["UPLOAD_FOLDER"] = os.path.join(app.static_folder, "uploads")
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
@@ -146,10 +108,11 @@ FIREBASE_SERVER_KEY = os.environ.get("FIREBASE_SERVER_KEY")  # optional for push
 
 ALLOWED_IMAGE_EXT = {"jpg", "jpeg", "png"}
 
-
 # =================================================
 # MODELS
 # =================================================
+
+
 class Province(db.Model):
     __tablename__ = "provinces"
     id = db.Column(db.Integer, primary_key=True)
@@ -169,7 +132,9 @@ class Barangay(db.Model):
     __tablename__ = "barangays"
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
-    municipality_id = db.Column(db.Integer, db.ForeignKey("municipalities.id"), nullable=False)
+    municipality_id = db.Column(
+        db.Integer, db.ForeignKey("municipalities.id"), nullable=False
+    )
 
     municipality = db.relationship("Municipality")
 
@@ -221,11 +186,14 @@ class Report(db.Model):
     # infestation type (GAS, RBB, etc.)
     infestation_type = db.Column(db.String(120))
 
+    # Optional: short text about report (may not exist in DB yet)
+    description = db.Column(db.Text)
+
     photo = db.Column(db.String(255))
 
     # GEO-TAGGING
-    lat = db.Column(db.Float)   # latitude
-    lng = db.Column(db.Float)   # longitude
+    lat = db.Column(db.Float)  # latitude
+    lng = db.Column(db.Float)  # longitude
 
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
 
@@ -259,59 +227,22 @@ class FcmToken(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_seen = db.Column(db.DateTime, default=datetime.utcnow)
 
-@app.route("/import_demo_reports")
-def import_demo_reports():
-    import json, os
-    from flask import jsonify
-
-    path = os.path.join(app.instance_path, "demo_reports.json")
-
-    if not os.path.exists(path):
-        return jsonify({"error": "demo_reports.json not found in instance/"}), 404
-
-    with open(path, "r") as f:
-        reports = json.load(f)
-
-    for r in reports:
-        db.execute(
-            """
-            INSERT INTO reports
-            (reporter, province, municipality, barangay, severity,
-            infestation_type, lat, lng, description, gps_metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                r["reporter"],
-                r["province"],
-                r["municipality"],
-                r["barangay"],
-                r["severity"],
-                r["infestation_type"],
-                r["lat"],
-                r["lng"],
-                r["description"],
-                json.dumps(r["gps_metadata"])
-            ),
-        )
-    db.commit()
-
-    return jsonify({"status": "ok", "inserted": len(reports)})
-
-
 
 @login_manager.user_loader
 def load_user(user_id):
-    # Warning about Query.get is harmless; can be changed later if desired
     return User.query.get(int(user_id))
 
 
 # =================================================
-# SIMPLE AUTO-MIGRATIONS (NO RENDER SHELL NEEDED)
+# SIMPLE AUTO-MIGRATIONS
 # =================================================
+
+
 def run_simple_migrations():
     """
-    Adds missing columns (lat, lng, infestation_type, province, municipality,
-    barangay) if they are not present yet. Works for Postgres and SQLite.
+    Adds missing columns (lat, lng, infestation_type, description, province,
+    municipality, barangay) if they are not present yet.
+    Works for Postgres and SQLite via plain ALTER TABLE.
     """
     engine = db.engine
     inspector = inspect(engine)
@@ -328,16 +259,26 @@ def run_simple_migrations():
     # REPORT columns
     try:
         if not has_column("report", "lat"):
-            db.session.execute(text("ALTER TABLE report ADD COLUMN lat DOUBLE PRECISION"))
+            db.session.execute(
+                text("ALTER TABLE report ADD COLUMN lat DOUBLE PRECISION")
+            )
             print("✅ MIGRATION: added report.lat")
 
         if not has_column("report", "lng"):
-            db.session.execute(text("ALTER TABLE report ADD COLUMN lng DOUBLE PRECISION"))
+            db.session.execute(
+                text("ALTER TABLE report ADD COLUMN lng DOUBLE PRECISION")
+            )
             print("✅ MIGRATION: added report.lng")
 
         if not has_column("report", "infestation_type"):
-            db.session.execute(text("ALTER TABLE report ADD COLUMN infestation_type TEXT"))
+            db.session.execute(
+                text("ALTER TABLE report ADD COLUMN infestation_type TEXT")
+            )
             print("✅ MIGRATION: added report.infestation_type")
+
+        if not has_column("report", "description"):
+            db.session.execute(text("ALTER TABLE report ADD COLUMN description TEXT"))
+            print("✅ MIGRATION: added report.description")
     except Exception as e:
         print("⚠️ MIGRATION ERROR for report table:", e)
 
@@ -353,7 +294,10 @@ def run_simple_migrations():
 
         if not has_column("user", "municipality"):
             db.session.execute(
-                text(f"ALTER TABLE {user_table_sql} ADD COLUMN municipality VARCHAR(120)")
+                text(
+                    f"ALTER TABLE {user_table_sql} "
+                    "ADD COLUMN municipality VARCHAR(120)"
+                )
             )
             print("✅ MIGRATION: added user.municipality")
 
@@ -372,15 +316,15 @@ def run_simple_migrations():
         print("⚠️ MIGRATION COMMIT ERROR:", e)
 
 
-# Run table creation + migrations on startup
 with app.app_context():
     db.create_all()
     run_simple_migrations()
 
-
 # =================================================
 # HELPERS
 # =================================================
+
+
 def sanitize(text_val):
     if text_val is None:
         return None
@@ -399,7 +343,6 @@ def require_admin():
 def send_fcm_notification(user, notif, extra_data=None):
     """Send FCM push if FIREBASE_SERVER_KEY is configured and user has tokens."""
     if not FIREBASE_SERVER_KEY:
-        # If you haven't set the key, we silently skip push.
         return
 
     tokens = [t.token for t in FcmToken.query.filter_by(user_id=user.id).all()]
@@ -416,7 +359,8 @@ def send_fcm_notification(user, notif, extra_data=None):
             "title": notif.title,
             "body": notif.body,
         },
-        "data": extra_data or {
+        "data": extra_data
+        or {
             "type": "HOTSPOT_ALERT",
             "notification_id": notif.id,
             "severity": notif.severity,
@@ -536,6 +480,8 @@ def apply_report_filters(q, args):
 # =================================================
 # STATIC (PWA)
 # =================================================
+
+
 @app.route("/service-worker.js")
 def service_worker():
     return send_from_directory("static", "service-worker.js")
@@ -544,6 +490,8 @@ def service_worker():
 # =================================================
 # PAGE ROUTES (ADMIN WEB)
 # =================================================
+
+
 @app.route("/")
 def home():
     if not current_user.is_authenticated:
@@ -632,6 +580,8 @@ def logout():
 # =================================================
 # API — LOCATION (FOR DROPDOWNS)
 # =================================================
+
+
 @app.route("/api/provinces")
 def api_provinces():
     data = Province.query.order_by(Province.name.asc()).all()
@@ -661,6 +611,8 @@ def api_barangays():
 # =================================================
 # MOBILE API — SIGNUP / LOGIN / TOKEN CHECK
 # =================================================
+
+
 @app.route("/api/signup", methods=["POST"])
 def api_signup():
     """
@@ -713,13 +665,18 @@ def api_signup():
     access_token = create_access_token(identity=str(user.id))
     refresh_token = create_refresh_token(identity=str(user.id))
 
-    return jsonify({
-        "message": "Signup success",
-        "token": access_token,
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "username": username,
-    }), 200
+    return (
+        jsonify(
+            {
+                "message": "Signup success",
+                "token": access_token,
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "username": username,
+            }
+        ),
+        200,
+    )
 
 
 @app.route("/api/login", methods=["POST"])
@@ -740,13 +697,18 @@ def api_login():
     access_token = create_access_token(identity=str(user.id))
     refresh_token = create_refresh_token(identity=str(user.id))
 
-    return jsonify({
-        "message": "Login success",
-        "token": access_token,
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "username": user.username,
-    }), 200
+    return (
+        jsonify(
+            {
+                "message": "Login success",
+                "token": access_token,
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "username": user.username,
+            }
+        ),
+        200,
+    )
 
 
 @app.route("/api/refresh", methods=["POST"])
@@ -754,11 +716,12 @@ def api_login():
 def api_refresh():
     user_id = get_jwt_identity()
     access_token = create_access_token(identity=str(user_id))
-    return jsonify({
-        "message": "Token refreshed",
-        "token": access_token,
-        "access_token": access_token,
-    }), 200
+    return (
+        jsonify(
+            {"message": "Token refreshed", "token": access_token, "access_token": access_token}
+        ),
+        200,
+    )
 
 
 @app.route("/api/check_token", methods=["GET"])
@@ -779,6 +742,8 @@ def api_logout():
 # =================================================
 # MOBILE API — SAVE FCM TOKEN
 # =================================================
+
+
 @app.route("/api/fcm-token", methods=["POST"])
 @jwt_required()
 def api_fcm_token():
@@ -804,6 +769,8 @@ def api_fcm_token():
 # =================================================
 # MOBILE API — SUBMIT REPORT
 # =================================================
+
+
 @app.route("/api/report", methods=["POST"])
 @jwt_required()
 def submit_report():
@@ -814,7 +781,7 @@ def submit_report():
 
     Fields:
       reporter, province, municipality, barangay, severity,
-      infestation_type, lat, lng, photo / photo_url
+      infestation_type, lat, lng, description?, photo / photo_url
     """
     user_id = int(get_jwt_identity())
 
@@ -827,6 +794,7 @@ def submit_report():
         barangay = sanitize(form.get("barangay"))
         severity = sanitize(form.get("severity")) or "Low"
         infestation_type = sanitize(form.get("infestation_type")) or "Other"
+        description = sanitize(form.get("description"))
 
         try:
             lat = float(form.get("lat")) if form.get("lat") else None
@@ -852,6 +820,7 @@ def submit_report():
         barangay = sanitize(data.get("barangay"))
         severity = sanitize(data.get("severity")) or "Low"
         infestation_type = sanitize(data.get("infestation_type")) or "Other"
+        description = sanitize(data.get("description"))
 
         lat = data.get("lat")
         lng = data.get("lng")
@@ -871,6 +840,7 @@ def submit_report():
         barangay=barangay,
         severity=severity,
         infestation_type=infestation_type,
+        description=description,
         lat=lat,
         lng=lng,
         photo=photo,
@@ -883,17 +853,24 @@ def submit_report():
     # create notifications for nearby farmers (High / Critical only)
     create_location_notifications(report)
 
-    return jsonify({
-        "message": "Report submitted successfully",
-        "id": report.id,
-        "severity": report.severity,
-        "infestation_type": report.infestation_type,
-    }), 201
+    return (
+        jsonify(
+            {
+                "message": "Report submitted successfully",
+                "id": report.id,
+                "severity": report.severity,
+                "infestation_type": report.infestation_type,
+            }
+        ),
+        201,
+    )
 
 
 # =================================================
 # MOBILE API — NOTIFICATIONS INBOX
 # =================================================
+
+
 @app.route("/api/notifications", methods=["GET"])
 @jwt_required()
 def api_notifications():
@@ -901,23 +878,25 @@ def api_notifications():
 
     notifs = Notification.query.filter_by(user_id=user_id).order_by(
         Notification.created_at.desc()
-    ).all()
+    )
 
-    return jsonify([
-        {
-            "id": n.id,
-            "title": n.title,
-            "body": n.body,
-            "province": n.province,
-            "municipality": n.municipality,
-            "barangay": n.barangay,
-            "severity": n.severity,
-            "infestation_type": n.infestation_type,
-            "created_at": n.created_at.isoformat(),
-            "is_read": n.is_read,
-        }
-        for n in notifs
-    ])
+    return jsonify(
+        [
+            {
+                "id": n.id,
+                "title": n.title,
+                "body": n.body,
+                "province": n.province,
+                "municipality": n.municipality,
+                "barangay": n.barangay,
+                "severity": n.severity,
+                "infestation_type": n.infestation_type,
+                "created_at": n.created_at.isoformat(),
+                "is_read": n.is_read,
+            }
+            for n in notifs
+        ]
+    )
 
 
 @app.route("/api/notifications/read", methods=["POST"])
@@ -944,34 +923,41 @@ def api_notifications_read():
 # =================================================
 # DASHBOARD API — FILTERED REPORTS (JSON)
 # =================================================
+
+
 @app.route("/api/reports")
 def get_reports():
     q = apply_report_filters(Report.query, request.args)
     reports = q.order_by(Report.date.desc()).all()
 
-    return jsonify([
-        {
-            "id": r.id,
-            "date": r.date.strftime("%Y-%m-%d %H:%M"),
-            "reporter": r.reporter,
-            "province": r.province,
-            "municipality": r.municipality,
-            "barangay": r.barangay,
-            "severity": r.severity,
-            "infestation_type": r.infestation_type,
-            "status": r.status,
-            "action_status": r.action_status,
-            "photo": r.photo,
-            "lat": r.lat,
-            "lng": r.lng,
-        }
-        for r in reports
-    ])
+    return jsonify(
+        [
+            {
+                "id": r.id,
+                "date": r.date.strftime("%Y-%m-%d %H:%M") if r.date else "",
+                "reporter": r.reporter,
+                "province": r.province,
+                "municipality": r.municipality,
+                "barangay": r.barangay,
+                "severity": r.severity,
+                "infestation_type": r.infestation_type,
+                "status": r.status,
+                "action_status": r.action_status,
+                "photo": r.photo,
+                "lat": r.lat,
+                "lng": r.lng,
+                "description": r.description,
+            }
+            for r in reports
+        ]
+    )
 
 
 # =================================================
 # DASHBOARD EXPORT — CSV
 # =================================================
+
+
 @app.route("/api/reports/export/csv")
 @login_required
 def export_reports_csv():
@@ -985,30 +971,42 @@ def export_reports_csv():
     writer = csv.writer(output)
 
     header = [
-        "ID", "Date", "Reporter",
-        "Province", "Municipality", "Barangay",
-        "Severity", "Infestation Type",
-        "Status", "Action Status",
-        "Latitude", "Longitude", "Photo URL"
+        "ID",
+        "Date",
+        "Reporter",
+        "Province",
+        "Municipality",
+        "Barangay",
+        "Severity",
+        "Infestation Type",
+        "Status",
+        "Action Status",
+        "Latitude",
+        "Longitude",
+        "Photo URL",
+        "Description",
     ]
     writer.writerow(header)
 
     for r in reports:
-        writer.writerow([
-            r.id,
-            r.date.strftime("%Y-%m-%d %H:%M") if r.date else "",
-            r.reporter or "",
-            r.province or "",
-            r.municipality or "",
-            r.barangay or "",
-            r.severity or "",
-            r.infestation_type or "",
-            r.status or "",
-            r.action_status or "",
-            r.lat or "",
-            r.lng or "",
-            r.photo or "",
-        ])
+        writer.writerow(
+            [
+                r.id,
+                r.date.strftime("%Y-%m-%d %H:%M") if r.date else "",
+                r.reporter or "",
+                r.province or "",
+                r.municipality or "",
+                r.barangay or "",
+                r.severity or "",
+                r.infestation_type or "",
+                r.status or "",
+                r.action_status or "",
+                r.lat or "",
+                r.lng or "",
+                r.photo or "",
+                (r.description or "").replace("\n", " "),
+            ]
+        )
 
     resp = make_response(output.getvalue())
     resp.headers["Content-Type"] = "text/csv"
@@ -1019,6 +1017,13 @@ def export_reports_csv():
 # =================================================
 # DASHBOARD EXPORT — EXCEL
 # =================================================
+
+try:
+    from openpyxl import Workbook
+except ImportError:
+    Workbook = None
+
+
 @app.route("/api/reports/export/excel")
 @login_required
 def export_reports_excel():
@@ -1026,9 +1031,14 @@ def export_reports_excel():
         return redirect(url_for("no_access"))
 
     if Workbook is None:
-        return jsonify({
-            "error": "Excel export not available. Install openpyxl on the server."
-        }), 500
+        return (
+            jsonify(
+                {
+                    "error": "Excel export not available. Install openpyxl on the server."
+                }
+            ),
+            500,
+        )
 
     q = apply_report_filters(Report.query, request.args)
     reports = q.order_by(Report.date.desc()).all()
@@ -1038,30 +1048,42 @@ def export_reports_excel():
     ws.title = "Reports"
 
     header = [
-        "ID", "Date", "Reporter",
-        "Province", "Municipality", "Barangay",
-        "Severity", "Infestation Type",
-        "Status", "Action Status",
-        "Latitude", "Longitude", "Photo URL"
+        "ID",
+        "Date",
+        "Reporter",
+        "Province",
+        "Municipality",
+        "Barangay",
+        "Severity",
+        "Infestation Type",
+        "Status",
+        "Action Status",
+        "Latitude",
+        "Longitude",
+        "Photo URL",
+        "Description",
     ]
     ws.append(header)
 
     for r in reports:
-        ws.append([
-            r.id,
-            r.date.strftime("%Y-%m-%d %H:%M") if r.date else "",
-            r.reporter or "",
-            r.province or "",
-            r.municipality or "",
-            r.barangay or "",
-            r.severity or "",
-            r.infestation_type or "",
-            r.status or "",
-            r.action_status or "",
-            r.lat or "",
-            r.lng or "",
-            r.photo or "",
-        ])
+        ws.append(
+            [
+                r.id,
+                r.date.strftime("%Y-%m-%d %H:%M") if r.date else "",
+                r.reporter or "",
+                r.province or "",
+                r.municipality or "",
+                r.barangay or "",
+                r.severity or "",
+                r.infestation_type or "",
+                r.status or "",
+                r.action_status or "",
+                r.lat or "",
+                r.lng or "",
+                r.photo or "",
+                r.description or "",
+            ]
+        )
 
     file_io = io.BytesIO()
     wb.save(file_io)
@@ -1078,6 +1100,8 @@ def export_reports_excel():
 # =================================================
 # DASHBOARD PRINT VIEW — HTML
 # =================================================
+
+
 @app.route("/reports/print")
 @login_required
 def print_reports_view():
@@ -1091,8 +1115,10 @@ def print_reports_view():
 
 
 # =================================================
-# ADMIN — POPULATE SAMPLE REPORTS
+# ADMIN — POPULATE SAMPLE REPORTS (WEB ROUTE)
 # =================================================
+
+
 @app.route("/admin/reports/populate", methods=["POST"])
 @login_required
 def populate_reports():
@@ -1132,6 +1158,7 @@ def populate_reports():
             lng=120.0 + random.random(),
             photo="",
             user_id=current_user.id,
+            description="Demo report generated by admin populate endpoint.",
         )
         db.session.add(r)
 
@@ -1140,8 +1167,108 @@ def populate_reports():
 
 
 # =================================================
-# RUN
+# FLASK CLI — SEED DEMO REPORTS (FROM JSON OR FALLBACK)
 # =================================================
+
+
+@app.cli.command("seed-demo")
+def seed_demo():
+    """
+    Seed demo reports.
+
+    Usage (locally or via Render shell):
+
+        flask seed-demo
+
+    Behaviour:
+    - If instance/demo_reports.json exists, load from there.
+      Expected keys per record:
+        reporter, province, municipality, barangay,
+        severity, infestation_type, lat, lng, description (optional)
+    - Otherwise, generates some Ilocos Sur demo reports.
+    """
+    with app.app_context():
+        os.makedirs(app.instance_path, exist_ok=True)
+        json_path = os.path.join(app.instance_path, "demo_reports.json")
+
+        if os.path.exists(json_path):
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            if not isinstance(data, list):
+                click.echo("demo_reports.json must contain a JSON array.")
+                return
+
+            count = 0
+            for r in data:
+                report = Report(
+                    date=datetime.utcnow(),
+                    reporter=r.get("reporter"),
+                    province=r.get("province"),
+                    municipality=r.get("municipality"),
+                    barangay=r.get("barangay"),
+                    severity=r.get("severity", "Low"),
+                    status=r.get("status", "Pending"),
+                    action_status=r.get("action_status", "Not Resolved"),
+                    infestation_type=r.get("infestation_type"),
+                    lat=r.get("lat"),
+                    lng=r.get("lng"),
+                    description=r.get("description"),
+                    photo=r.get("photo", ""),
+                    user_id=None,
+                )
+                db.session.add(report)
+                count += 1
+
+            db.session.commit()
+            click.echo(f"✅ Inserted {count} demo reports from demo_reports.json")
+            return
+
+        # Fallback demo data (Ilocos Sur + surrounding)
+        severities = ["Low", "Moderate", "High", "Critical"]
+        infestations = [
+            "Golden Apple Snail (GAS)",
+            "Rice Black Bug (RBB)",
+            "Brown Plant Hopper (BPH)",
+            "Others",
+        ]
+
+        ilocos_province = "Ilocos Sur"
+        towns = ["Vigan City", "Candon City", "Santa", "Bantay", "Sta. Maria"]
+        barangays = ["Barangay I", "Barangay II", "Barangay III", "Cabaroan", "Tablac"]
+
+        for i in range(15):  # 15 demo reports
+            town = random.choice(towns)
+            brgy = random.choice(barangays)
+            sev = random.choice(severities)
+            infest = random.choice(infestations)
+
+            r = Report(
+                date=datetime.utcnow() - timedelta(days=random.randint(0, 7)),
+                reporter=f"Demo Farmer {i+1}",
+                province=ilocos_province,
+                municipality=town,
+                barangay=brgy,
+                severity=sev,
+                status="Pending" if sev in ("High", "Critical") else "In Progress",
+                action_status="Not Resolved",
+                infestation_type=infest,
+                lat=17.50 + random.random() * 0.3,
+                lng=120.35 + random.random() * 0.3,
+                photo="",
+                user_id=None,
+                description=f"Demo report #{i+1} seeded via CLI in {brgy}, {town}.",
+            )
+            db.session.add(r)
+
+        db.session.commit()
+        click.echo("✅ Inserted 15 fallback demo reports for Ilocos Sur.")
+
+
+# =================================================
+# RUN (LOCAL DEV)
+# =================================================
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
