@@ -18,9 +18,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <style>
-        body {
-            background: #f5f5f5;
-        }
+        body { background: #f5f5f5; }
 
         .kpi-card {
             border-radius: 12px;
@@ -29,18 +27,9 @@
             box-shadow: 0 2px 8px rgba(0,0,0,0.08);
             border-left: 6px solid #198754;
         }
-
-        .kpi-red {
-            border-left-color: #dc3545;
-        }
-
-        .kpi-yellow {
-            border-left-color: #ffc107;
-        }
-
-        .kpi-blue {
-            border-left-color: #0d6efd;
-        }
+        .kpi-red { border-left-color:#dc3545; }
+        .kpi-yellow { border-left-color:#ffc107; }
+        .kpi-blue { border-left-color:#0d6efd; }
 
         #map {
             height: 430px;
@@ -66,9 +55,7 @@
 
 <body>
 
-<!-- ================================ -->
-<!-- HEADER -->
-<!-- ================================ -->
+<!-- ▬▬▬ HEADER ▬▬▬ -->
 <div class="d-flex justify-content-between align-items-center px-3 py-2 bg-white shadow-sm border-bottom sticky-top"
      style="z-index: 1000;">
 
@@ -102,9 +89,7 @@
 
 
 
-<!-- ================================ -->
-<!-- KPI CARDS -->
-<!-- ================================ -->
+<!-- ▬▬▬ KPI CARDS ▬▬▬ -->
 <div class="container mt-3">
     <div class="row g-3">
 
@@ -141,12 +126,8 @@
 
 
 
-
-<!-- ================================ -->
-<!-- FILTER CONTROLS -->
-<!-- ================================ -->
+<!-- ▬▬▬ FILTERS ▬▬▬ -->
 <div class="container mt-4">
-
     <div class="row g-3">
 
         <div class="col-md-2">
@@ -157,19 +138,22 @@
         <div class="col-md-2">
             <label>Severity</label>
             <select id="severityFilter" class="form-select">
-                <option>All</option>
-                <option>Low</option>
-                <option>Moderate</option>
-                <option>High</option>
+                <option value="All">All</option>
+                <option value="Low">Low</option>
+                <option value="Moderate">Moderate</option>
+                <option value="High">High</option>
+                <option value="Critical">Critical</option>
             </select>
         </div>
 
-        <div class="col-md-2">
+        <div class="col-md-3">
             <label>Infestation Type</label>
             <select id="infestationFilter" class="form-select">
-                <option>All</option>
-                <option>Snail</option>
-                <option>Egg Cluster</option>
+                <option value="All">All</option>
+                <option value="Golden Apple Snail (GAS)">Golden Apple Snail (GAS)</option>
+                <option value="Rice Black Bug (RBB)">Rice Black Bug (RBB)</option>
+                <option value="Brown Plant Hopper (BPH)">Brown Plant Hopper (BPH)</option>
+                <option value="Others">Others</option>
             </select>
         </div>
 
@@ -183,20 +167,16 @@
             <input id="endDate" type="date" class="form-control">
         </div>
 
-        <div class="col-md-2 d-flex align-items-end">
-            <button id="filterBtn" class="btn btn-success w-100">Apply Filter</button>
+        <div class="col-md-1 d-flex align-items-end">
+            <button id="filterBtn" class="btn btn-success w-100">Apply</button>
         </div>
 
     </div>
-
 </div>
 
 
 
-
-<!-- ================================ -->
-<!-- HEATMAP PANEL -->
-<!-- ================================ -->
+<!-- ▬▬▬ HEATMAP PANEL ▬▬▬ -->
 <div class="container mt-4">
     <div class="panel-box">
         <h5 class="fw-bold mb-3">Infestation Heatmap</h5>
@@ -206,9 +186,7 @@
 
 
 
-<!-- ================================ -->
-<!-- CHARTS ROW -->
-<!-- ================================ -->
+<!-- ▬▬▬ CHARTS ROW ▬▬▬ -->
 <div class="container mt-4">
     <div class="row g-3">
 
@@ -238,9 +216,7 @@
 
 
 
-<!-- ================================ -->
-<!-- FOOTER -->
-<!-- ================================ -->
+<!-- ▬▬▬ FOOTER ▬▬▬ -->
 <div class="text-center text-muted p-3 mt-4">
     © 2025 GASsight | Dashboard System
 </div>
