@@ -17,17 +17,16 @@ from sqlalchemy import text
 app = Flask(__name__)
 CORS(app)
 
-# --------------------------------------------------------------------
+# =====================================================================
 # SECRET KEY
-# --------------------------------------------------------------------
+# =====================================================================
 app.secret_key = os.environ.get("SECRET_KEY", "dev_secret_key")
 
-# --------------------------------------------------------------------
+# =====================================================================
 # DATABASE CONFIG
-# --------------------------------------------------------------------
+# =====================================================================
 db_url = os.environ.get("DATABASE_URL", "sqlite:///data.db")
 
-# Render Postgres requires postgresql:// format
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
@@ -37,16 +36,11 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
 
-# --------------------------------------------------------------------
-# AUTO-FIX USER TABLE (SQLAlchemy 2.x SAFE)
-# --------------------------------------------------------------------
+# =====================================================================
+# AUTO-FIX USERS TABLE
+# =====================================================================
 def add_missing_columns():
-    """
-    Make sure the 'users' table has all columns used by the User model.
-    Safe to run on every startup.
-    """
     try:
-        # If we're on SQLite, information_schema doesn't exist – just skip
         if app.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite"):
             return
 
@@ -70,20 +64,19 @@ def add_missing_columns():
 
         for col, dtype in required_columns.items():
             if col not in columns:
-                print(f"⚠ Adding missing users column: {col}")
+                print(f"Adding missing column: {col}")
                 db.session.execute(
                     text(f'ALTER TABLE "users" ADD COLUMN {col} {dtype};')
                 )
                 db.session.commit()
-                print(f"✔ Added: {col}")
 
     except Exception as e:
-        print("❌ Column auto-fix failed:", e)
+        print("Error adding missing columns:", e)
 
 
-# --------------------------------------------------------------------
+# =====================================================================
 # MODELS
-# --------------------------------------------------------------------
+# =====================================================================
 class User(db.Model):
     __tablename__ = "users"
     id = db.Column(db.Integer, primary_key=True)
@@ -104,8 +97,7 @@ class Report(db.Model):
     province = db.Column(db.String(120))
     municipality = db.Column(db.String(120))
     barangay = db.Column(db.String(120))
-    # Admin-controlled; reporters don't set this
-    severity = db.Column(db.String(50), default="Pending")
+    severity = db.Column(db.String(50), default="Pending")    # DEFAULT HERE
     infestation_type = db.Column(db.String(120))
     lat = db.Column(db.Float)
     lng = db.Column(db.Float)
@@ -114,32 +106,26 @@ class Report(db.Model):
     date = db.Column(db.DateTime, default=datetime.utcnow)
 
 
-# --------------------------------------------------------------------
+# =====================================================================
 # DEMO DATA SEEDING
-# --------------------------------------------------------------------
+# =====================================================================
 DEMO_PATH = os.path.join(os.path.dirname(__file__), "demo_reports.json")
 
 
 def seed_demo_reports():
-    """
-    Seed the Report table from demo_reports.json if the table is empty.
-    Safe to call on every startup – it checks count() first.
-    """
     try:
         if Report.query.count() > 0:
-            print("✔ Reports already exist, skipping demo seed.")
+            print("Reports already exist.")
             return
 
         if not os.path.exists(DEMO_PATH):
-            print("⚠ demo_reports.json not found, skipping seed.")
+            print("demo_reports.json missing.")
             return
 
         with open(DEMO_PATH, "r") as f:
             data = json.load(f)
 
-        print(f"⚠ Seeding {len(data)} demo reports...")
         for r in data:
-            # Parse timestamp from gps_metadata
             ts = r.get("gps_metadata", {}).get("timestamp")
             if ts:
                 try:
@@ -154,8 +140,7 @@ def seed_demo_reports():
                 province=r.get("province"),
                 municipality=r.get("municipality"),
                 barangay=r.get("barangay"),
-                # Force demo severity to Pending (admin will classify)
-                severity="Pending",
+                severity="Pending",      # FORCE DEMO TO PENDING
                 infestation_type=r.get("infestation_type"),
                 lat=r.get("lat"),
                 lng=r.get("lng"),
@@ -166,38 +151,30 @@ def seed_demo_reports():
             db.session.add(report)
 
         db.session.commit()
-        print("✔ Demo reports seeded successfully.")
+        print("Demo seed complete.")
 
     except Exception as e:
-        print("❌ Error seeding demo reports:", e)
+        print("Error seeding:", e)
 
 
-def reset_old_severity_to_pending():
-    """
-    Option B: Force ALL existing reports' severity to 'Pending'
-    so only admins classify them.
-    """
-    try:
-        updated_count = Report.query.update({Report.severity: "Pending"})
-        db.session.commit()
-        print(f"✔ Reset severity to 'Pending' for {updated_count} reports.")
-    except Exception as e:
-        print("❌ Failed to reset old severities:", e)
-
-
-# --------------------------------------------------------------------
-# INITIALIZE DB
-# --------------------------------------------------------------------
+# =====================================================================
+# STARTUP DB INITIALIZATION
+# =====================================================================
 with app.app_context():
     db.create_all()
     add_missing_columns()
     seed_demo_reports()
-    reset_old_severity_to_pending()
+
+    # B — Convert ALL existing reports to Pending
+    print("Converting ALL existing reports to severity='Pending' ...")
+    db.session.execute(text("UPDATE report SET severity='Pending';"))
+    db.session.commit()
+    print("Done!")
 
 
-# --------------------------------------------------------------------
+# =====================================================================
 # AUTH ROUTES
-# --------------------------------------------------------------------
+# =====================================================================
 @app.route("/signup", methods=["POST"])
 def signup():
     data = request.get_json(silent=True)
@@ -216,7 +193,7 @@ def signup():
         return jsonify({"error": "Missing username/password"}), 400
 
     if User.query.filter_by(username=username).first():
-        return jsonify({"error": "Username already exists"}), 400
+        return jsonify({"error": "Username exists"}), 400
 
     is_admin = adminCode == os.environ.get("ADMIN_CODE", "12345")
 
@@ -241,20 +218,18 @@ def api_register():
     return signup()
 
 
-# --------------------------------------------------------------------
+# =====================================================================
 # LOGIN
-# --------------------------------------------------------------------
+# =====================================================================
 @app.route("/login", methods=["POST"])
 def login_submit():
-    # HTML FORM LOGIN
     if request.form:
         username = request.form.get("username")
         password = request.form.get("password")
-    else:  # JSON LOGIN
+    else:
         data = request.get_json(silent=True)
         if not data:
             return jsonify({"error": "Invalid request"}), 400
-
         username = data.get("username")
         password = data.get("password")
 
@@ -287,9 +262,9 @@ def logout():
     return redirect("/login")
 
 
-# --------------------------------------------------------------------
+# =====================================================================
 # PAGES
-# --------------------------------------------------------------------
+# =====================================================================
 @app.route("/")
 def dashboard():
     if "user" not in session:
@@ -320,9 +295,9 @@ def print_reports():
     return render_template("reports_print.html", reports=reports, now=datetime.utcnow)
 
 
-# --------------------------------------------------------------------
+# =====================================================================
 # REPORTS API
-# --------------------------------------------------------------------
+# =====================================================================
 @app.route("/api/barangays", methods=["GET"])
 def get_barangays():
     brgys = [b[0] for b in db.session.query(Report.barangay).distinct().all()]
@@ -352,19 +327,17 @@ def get_reports():
     if infestation_type:
         query = query.filter_by(infestation_type=infestation_type)
 
-    # date filtering
-    try:
-        if start_date:
-            query = query.filter(
-                Report.date >= datetime.strptime(start_date, "%Y-%m-%d")
-            )
-        if end_date:
-            query = query.filter(
-                Report.date
-                <= datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
-            )
-    except Exception:
-        pass
+    if start_date:
+        try:
+            query = query.filter(Report.date >= datetime.strptime(start_date, "%Y-%m-%d"))
+        except:
+            pass
+
+    if end_date:
+        try:
+            query = query.filter(Report.date <= datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1))
+        except:
+            pass
 
     reports = query.order_by(Report.date.desc()).all()
 
@@ -389,9 +362,9 @@ def get_reports():
     )
 
 
-# --------------------------------------------------------------------
+# =====================================================================
 # UPDATE SEVERITY (ADMIN ONLY)
-// --------------------------------------------------------------------
+# =====================================================================
 @app.route("/api/update_severity", methods=["POST"])
 def update_severity():
     if "user" not in session:
@@ -412,7 +385,7 @@ def update_severity():
 
     report = Report.query.get(report_id)
     if not report:
-        return jsonify({"error": "Report not found"}), 404
+        return jsonify({"error": "Not found"}), 404
 
     report.severity = new_severity
     db.session.commit()
@@ -420,9 +393,9 @@ def update_severity():
     return jsonify({"status": "success"})
 
 
-# --------------------------------------------------------------------
-# RENDER ENTRY POINT
-# --------------------------------------------------------------------
+# =====================================================================
+# RUN
+# =====================================================================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
