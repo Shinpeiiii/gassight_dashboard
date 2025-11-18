@@ -9,10 +9,8 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 
     <!-- Leaflet CSS -->
-    <link rel="stylesheet" 
-          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 
-    <!-- Styling -->
     <style>
         body { background: #f5f5f5; }
 
@@ -27,10 +25,7 @@
         .kpi-yellow { border-left-color:#ffc107; }
         .kpi-blue { border-left-color:#0d6efd; }
 
-        #map {
-            height: 430px;
-            border-radius: 10px;
-        }
+        #map { height: 430px; border-radius: 10px; }
 
         .panel-box {
             background: white;
@@ -56,19 +51,20 @@
 
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </head>
 
 <body>
 
 <!-- HEADER -->
-<div class="d-flex justify-content-between align-items-center px-3 py-2 bg-white shadow-sm border-bottom sticky-top"
-     style="z-index: 1000;">
-
+<div class="d-flex justify-content-between align-items-center px-3 py-2 bg-white shadow-sm border-bottom sticky-top" style="z-index: 1000;">
     <div class="d-flex align-items-center">
         <img src="/static/images/snail-logo.png" style="height:55px;width:55px;border-radius:50%;object-fit:cover;">
         <div class="ms-2">
             <h4 class="fw-bold m-0">GASsight Dashboard</h4>
-            <small class="text-muted">Golden Apple Snail Infestation Tracking &amp; Visualization</small>
+            <small class="text-muted">Golden Apple Snail Infestation Tracking & Visualization</small>
         </div>
     </div>
 
@@ -77,16 +73,14 @@
             Last updated: <span id="lastUpdate" class="fw-semibold">--:--:--</span>
         </div>
 
-        <div class="d-flex gap-2 justify-content-end">
+        <div class="d-flex gap-2">
             <button id="manualRefresh" class="btn btn-outline-primary btn-sm">Refresh Now</button>
-
             <select id="refreshInterval" class="form-select form-select-sm w-auto">
                 <option value="off">Auto-refresh: Off</option>
                 <option value="10">Every 10s</option>
                 <option value="30">Every 30s</option>
                 <option value="60">Every 1m</option>
             </select>
-
             <a href="/logout" class="btn btn-danger btn-sm">Logout</a>
         </div>
     </div>
@@ -96,35 +90,10 @@
 <!-- KPI CARDS -->
 <div class="container mt-3">
     <div class="row g-3">
-
-        <div class="col-md-3">
-            <div class="kpi-card">
-                <h6>Total Sightings</h6>
-                <h2 id="totalSightings" class="fw-bold">0</h2>
-            </div>
-        </div>
-
-        <div class="col-md-3">
-            <div class="kpi-card kpi-red">
-                <h6>Active High-Risk Hotspots</h6>
-                <h2 id="activeHotspots" class="fw-bold">0</h2>
-            </div>
-        </div>
-
-        <div class="col-md-3">
-            <div class="kpi-card kpi-yellow">
-                <h6>Active Reporters</h6>
-                <h2 id="activeReporters" class="fw-bold">0</h2>
-            </div>
-        </div>
-
-        <div class="col-md-3">
-            <div class="kpi-card kpi-blue">
-                <h6>Average Response Time (hrs)</h6>
-                <h2 id="avgResponse" class="fw-bold">0</h2>
-            </div>
-        </div>
-
+        <div class="col-md-3"><div class="kpi-card"><h6>Total Sightings</h6><h2 id="totalSightings">0</h2></div></div>
+        <div class="col-md-3"><div class="kpi-card kpi-red"><h6>High-Risk Hotspots</h6><h2 id="activeHotspots">0</h2></div></div>
+        <div class="col-md-3"><div class="kpi-card kpi-yellow"><h6>Active Reporters</h6><h2 id="activeReporters">0</h2></div></div>
+        <div class="col-md-3"><div class="kpi-card kpi-blue"><h6>Avg Response (hrs)</h6><h2 id="avgResponse">0</h2></div></div>
     </div>
 </div>
 
@@ -132,65 +101,35 @@
 <!-- FILTERS -->
 <div class="container mt-4">
     <div class="row g-3">
-
-        <div class="col-md-2">
-            <label>Province</label>
-            <select id="provinceFilter" class="form-select"></select>
-        </div>
-
-        <div class="col-md-2">
-            <label>Municipality</label>
-            <select id="municipalityFilter" class="form-select"></select>
-        </div>
-
-        <div class="col-md-2">
-            <label>Barangay</label>
-            <select id="barangayFilter" class="form-select"></select>
-        </div>
-
-        <div class="col-md-2">
-            <label>Severity</label>
+        <div class="col-md-2"><label>Province</label><select id="provinceFilter" class="form-select"></select></div>
+        <div class="col-md-2"><label>Municipality</label><select id="municipalityFilter" class="form-select"></select></div>
+        <div class="col-md-2"><label>Barangay</label><select id="barangayFilter" class="form-select"></select></div>
+        <div class="col-md-2"><label>Severity</label>
             <select id="severityFilter" class="form-select">
-                <option value="All">All</option>
-                <option value="Low">Low</option>
-                <option value="Moderate">Moderate</option>
-                <option value="High">High</option>
-                <option value="Critical">Critical</option>
+                <option value="All">All</option><option value="Low">Low</option><option value="Moderate">Moderate</option>
+                <option value="High">High</option><option value="Critical">Critical</option>
             </select>
         </div>
-
-        <div class="col-md-2">
-            <label>Infestation Type</label>
+        <div class="col-md-2"><label>Infestation</label>
             <select id="infestationFilter" class="form-select">
                 <option value="All">All</option>
-                <option value="Golden Apple Snail (GAS)">Golden Apple Snail (GAS)</option>
-                <option value="Rice Black Bug (RBB)">Rice Black Bug (RBB)</option>
-                <option value="Brown Plant Hopper (BPH)">Brown Plant Hopper (BPH)</option>
+                <option value="Golden Apple Snail (GAS)">GAS</option>
+                <option value="Rice Black Bug (RBB)">RBB</option>
+                <option value="Brown Plant Hopper (BPH)">BPH</option>
                 <option value="Others">Others</option>
             </select>
         </div>
-
     </div>
 
     <div class="row g-3 mt-2">
-        <div class="col-md-2">
-            <label>Start Date</label>
-            <input id="startDate" type="date" class="form-control">
-        </div>
-
-        <div class="col-md-2">
-            <label>End Date</label>
-            <input id="endDate" type="date" class="form-control">
-        </div>
-
-        <div class="col-md-2 d-flex align-items-end">
-            <button id="filterBtn" class="btn btn-success w-100">Apply</button>
-        </div>
+        <div class="col-md-2"><label>Start</label><input id="startDate" type="date" class="form-control"></div>
+        <div class="col-md-2"><label>End</label><input id="endDate" type="date" class="form-control"></div>
+        <div class="col-md-2 d-flex align-items-end"><button id="filterBtn" class="btn btn-success w-100">Apply</button></div>
     </div>
 </div>
 
 
-<!-- HEATMAP PANEL -->
+<!-- HEATMAP -->
 <div class="container mt-4">
     <div class="panel-box">
         <h5 class="fw-bold mb-3">Infestation Heatmap</h5>
@@ -202,41 +141,22 @@
 <!-- CHARTS -->
 <div class="container mt-4">
     <div class="row g-3">
-
-        <div class="col-md-4">
-            <div class="chart-box">
-                <h6 class="fw-bold mb-2">Severity Distribution</h6>
-                <canvas id="severityChart"></canvas>
-            </div>
-        </div>
-
-        <div class="col-md-4">
-            <div class="chart-box">
-                <h6 class="fw-bold mb-2">Reports by Barangay</h6>
-                <canvas id="barangayChart"></canvas>
-            </div>
-        </div>
-
-        <div class="col-md-4">
-            <div class="chart-box">
-                <h6 class="fw-bold mb-2">Weekly Trend</h6>
-                <canvas id="trendChart"></canvas>
-            </div>
-        </div>
-
+        <div class="col-md-4"><div class="chart-box"><h6>Severity</h6><canvas id="severityChart"></canvas></div></div>
+        <div class="col-md-4"><div class="chart-box"><h6>Barangay</h6><canvas id="barangayChart"></canvas></div></div>
+        <div class="col-md-4"><div class="chart-box"><h6>Weekly Trend</h6><canvas id="trendChart"></canvas></div></div>
     </div>
 </div>
 
 
-<!-- ▬▬▬ NEW: RECENT REPORTS TABLE ▬▬▬ -->
+<!-- RECENT REPORTS TABLE -->
 <div class="container mt-4">
     <div class="chart-box">
         <h5 class="fw-bold mb-3">Recent Reports</h5>
-
         <div class="table-responsive">
             <table class="table table-striped table-bordered align-middle">
                 <thead class="table-dark">
                     <tr>
+                        <th>Photo</th>
                         <th>Date</th>
                         <th>Province</th>
                         <th>Municipality</th>
@@ -247,7 +167,7 @@
                     </tr>
                 </thead>
                 <tbody id="recentReportsTable">
-                    <tr><td colspan="7" class="text-center text-muted">Loading...</td></tr>
+                    <tr><td colspan="8" class="text-center text-muted">Loading...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -255,12 +175,21 @@
 </div>
 
 
-<!-- FOOTER -->
-<div class="text-center text-muted p-3 mt-4">
-    © 2025 GASsight | Dashboard System
+<!-- FULL IMAGE MODAL -->
+<div class="modal fade" id="photoModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-body p-0">
+        <img id="modalPhoto" src="" class="w-100" style="border-radius:4px;">
+      </div>
+    </div>
+  </div>
 </div>
 
-<script src="/static/js/dashboard.js"></script>
 
+<!-- FOOTER -->
+<div class="text-center text-muted p-3 mt-4">© 2025 GASsight | Dashboard System</div>
+
+<script src="/static/js/dashboard.js"></script>
 </body>
 </html>
