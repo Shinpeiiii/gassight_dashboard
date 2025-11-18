@@ -139,28 +139,29 @@ def api_register():
     return signup()
 
 
-@app.route("/login", methods=["POST"])
-def login_api():
-    data = request.json
-    if not data:
-        return jsonify({"success": False, "error": "Invalid request"}), 400
+@app.route("/login", methods=["GET", "POST"])
+def login_page():
+    if request.method == "GET":
+        # If already logged in → dashboard
+        if "user" in session:
+            return redirect("/")
+        return render_template("login.html")
 
-    username = data.get("username")
-    password = data.get("password")
+    # POST → HTML form login
+    username = request.form.get("username")
+    password = request.form.get("password")
+
+    if not username or not password:
+        return render_template("login.html", error="Please enter username and password")
 
     user = User.query.filter_by(username=username, password=password).first()
     if not user:
-        return jsonify({"success": False, "error": "Invalid credentials"})
+        return render_template("login.html", error="Invalid username or password")
 
     session["user"] = username
-    return jsonify({"success": True, "username": username})
+    return redirect("/")
 
 
-@app.route("/login")
-def login_page():
-    if "user" in session:
-        return redirect("/")
-    return render_template("login.html")
 
 
 @app.route("/logout")
