@@ -183,7 +183,7 @@ def login_submit():
         username = request.form.get("username")
         password = request.form.get("password")
 
-    # JSON login
+    # JSON login (mobile app)
     else:
         data = request.get_json(silent=True)
         if not data:
@@ -194,16 +194,21 @@ def login_submit():
     user = User.query.filter_by(username=username, password=password).first()
 
     if not user:
+        # HTML FORM → redirect with error
+        if request.form:
+            return redirect("/login?error=1")
+
+        # JSON → API response
         return jsonify({"success": False, "error": "Invalid credentials"}), 401
 
+    # SUCCESS — login user
     session["user"] = username
 
-    # Return JSON for API logins
     if request.is_json:
         return jsonify({"success": True})
 
-    # Redirect for HTML logins
     return redirect("/")
+
 
 
 @app.route("/login")
