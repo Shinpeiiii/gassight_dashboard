@@ -104,7 +104,8 @@ class Report(db.Model):
     province = db.Column(db.String(120))
     municipality = db.Column(db.String(120))
     barangay = db.Column(db.String(120))
-    severity = db.Column(db.String(50))
+    # Admin-controlled; reporters don't set this
+    severity = db.Column(db.String(50), default="Pending")
     infestation_type = db.Column(db.String(120))
     lat = db.Column(db.Float)
     lng = db.Column(db.Float)
@@ -153,7 +154,8 @@ def seed_demo_reports():
                 province=r.get("province"),
                 municipality=r.get("municipality"),
                 barangay=r.get("barangay"),
-                severity=r.get("severity"),
+                # Force demo severity to Pending (admin will classify)
+                severity="Pending",
                 infestation_type=r.get("infestation_type"),
                 lat=r.get("lat"),
                 lng=r.get("lng"),
@@ -170,6 +172,19 @@ def seed_demo_reports():
         print("❌ Error seeding demo reports:", e)
 
 
+def reset_old_severity_to_pending():
+    """
+    Option B: Force ALL existing reports' severity to 'Pending'
+    so only admins classify them.
+    """
+    try:
+        updated_count = Report.query.update({Report.severity: "Pending"})
+        db.session.commit()
+        print(f"✔ Reset severity to 'Pending' for {updated_count} reports.")
+    except Exception as e:
+        print("❌ Failed to reset old severities:", e)
+
+
 # --------------------------------------------------------------------
 # INITIALIZE DB
 # --------------------------------------------------------------------
@@ -177,6 +192,7 @@ with app.app_context():
     db.create_all()
     add_missing_columns()
     seed_demo_reports()
+    reset_old_severity_to_pending()
 
 
 # --------------------------------------------------------------------
@@ -367,11 +383,41 @@ def get_reports():
                 "description": r.description,
                 "photo": r.photo,
                 "date": r.date.strftime("%Y-%m-%d %H:%M:%S"),
-                "status": "Pending",
             }
             for r in reports
         ]
     )
+
+
+# --------------------------------------------------------------------
+# UPDATE SEVERITY (ADMIN ONLY)
+// --------------------------------------------------------------------
+@app.route("/api/update_severity", methods=["POST"])
+def update_severity():
+    if "user" not in session:
+        return jsonify({"error": "Not logged in"}), 401
+
+    if not session.get("is_admin", False):
+        return jsonify({"error": "Only admins can update severity"}), 403
+
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "Invalid request"}), 400
+
+    report_id = data.get("id")
+    new_severity = data.get("severity")
+
+    if not report_id or not new_severity:
+        return jsonify({"error": "Missing id or severity"}), 400
+
+    report = Report.query.get(report_id)
+    if not report:
+        return jsonify({"error": "Report not found"}), 404
+
+    report.severity = new_severity
+    db.session.commit()
+
+    return jsonify({"status": "success"})
 
 
 # --------------------------------------------------------------------

@@ -64,7 +64,7 @@
         <img src="/static/images/snail-logo.png" style="height:55px;width:55px;border-radius:50%;object-fit:cover;">
         <div class="ms-2">
             <h4 class="fw-bold m-0">GASsight Dashboard</h4>
-            <small class="text-muted">Golden Apple Snail Infestation Tracking & Visualization</small>
+            <small class="text-muted">Golden Apple Snail Infestation Tracking &amp; Visualization</small>
         </div>
     </div>
 
@@ -90,10 +90,30 @@
 <!-- KPI CARDS -->
 <div class="container mt-3">
     <div class="row g-3">
-        <div class="col-md-3"><div class="kpi-card"><h6>Total Sightings</h6><h2 id="totalSightings">0</h2></div></div>
-        <div class="col-md-3"><div class="kpi-card kpi-red"><h6>High-Risk Hotspots</h6><h2 id="activeHotspots">0</h2></div></div>
-        <div class="col-md-3"><div class="kpi-card kpi-yellow"><h6>Active Reporters</h6><h2 id="activeReporters">0</h2></div></div>
-        <div class="col-md-3"><div class="kpi-card kpi-blue"><h6>Avg Response (hrs)</h6><h2 id="avgResponse">0</h2></div></div>
+        <div class="col-md-3">
+            <div class="kpi-card">
+                <h6>Total Sightings</h6>
+                <h2 id="totalSightings">0</h2>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="kpi-card kpi-red">
+                <h6>High-Risk Hotspots</h6>
+                <h2 id="activeHotspots">0</h2>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="kpi-card kpi-yellow">
+                <h6>Active Reporters</h6>
+                <h2 id="activeReporters">0</h2>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="kpi-card kpi-blue">
+                <h6>Avg Response (hrs)</h6>
+                <h2 id="avgResponse">0</h2>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -101,30 +121,53 @@
 <!-- FILTERS -->
 <div class="container mt-4">
     <div class="row g-3">
-        <div class="col-md-2"><label>Province</label><select id="provinceFilter" class="form-select"></select></div>
-        <div class="col-md-2"><label>Municipality</label><select id="municipalityFilter" class="form-select"></select></div>
-        <div class="col-md-2"><label>Barangay</label><select id="barangayFilter" class="form-select"></select></div>
-        <div class="col-md-2"><label>Severity</label>
+        <div class="col-md-2">
+            <label>Province</label>
+            <select id="provinceFilter" class="form-select"></select>
+        </div>
+        <div class="col-md-2">
+            <label>Municipality</label>
+            <select id="municipalityFilter" class="form-select"></select>
+        </div>
+        <div class="col-md-2">
+            <label>Barangay</label>
+            <select id="barangayFilter" class="form-select"></select>
+        </div>
+        <div class="col-md-2">
+            <label>Severity</label>
             <select id="severityFilter" class="form-select">
-                <option value="All">All</option><option value="Low">Low</option><option value="Moderate">Moderate</option>
-                <option value="High">High</option><option value="Critical">Critical</option>
+                <option value="All">All</option>
+                <option value="Pending">Pending</option>
+                <option value="Low">Low</option>
+                <option value="Moderate">Moderate</option>
+                <option value="High">High</option>
+                <option value="Critical">Critical</option>
             </select>
         </div>
-        <div class="col-md-2"><label>Infestation</label>
+        <div class="col-md-2">
+            <label>Infestation</label>
             <select id="infestationFilter" class="form-select">
                 <option value="All">All</option>
-                <option value="Golden Apple Snail (GAS)">GAS</option>
-                <option value="Rice Black Bug (RBB)">RBB</option>
-                <option value="Brown Plant Hopper (BPH)">BPH</option>
+                <option value="Golden Apple Snail (GAS)">Golden Apple Snail (GAS)</option>
+                <option value="Rice Black Bug (RBB)">Rice Black Bug (RBB)</option>
+                <option value="Brown Plant Hopper (BPH)">Brown Plant Hopper (BPH)</option>
                 <option value="Others">Others</option>
             </select>
         </div>
     </div>
 
     <div class="row g-3 mt-2">
-        <div class="col-md-2"><label>Start</label><input id="startDate" type="date" class="form-control"></div>
-        <div class="col-md-2"><label>End</label><input id="endDate" type="date" class="form-control"></div>
-        <div class="col-md-2 d-flex align-items-end"><button id="filterBtn" class="btn btn-success w-100">Apply</button></div>
+        <div class="col-md-2">
+            <label>Start</label>
+            <input id="startDate" type="date" class="form-control">
+        </div>
+        <div class="col-md-2">
+            <label>End</label>
+            <input id="endDate" type="date" class="form-control">
+        </div>
+        <div class="col-md-2 d-flex align-items-end">
+            <button id="filterBtn" class="btn btn-success w-100">Apply</button>
+        </div>
     </div>
 </div>
 
@@ -141,9 +184,24 @@
 <!-- CHARTS -->
 <div class="container mt-4">
     <div class="row g-3">
-        <div class="col-md-4"><div class="chart-box"><h6>Severity</h6><canvas id="severityChart"></canvas></div></div>
-        <div class="col-md-4"><div class="chart-box"><h6>Barangay</h6><canvas id="barangayChart"></canvas></div></div>
-        <div class="col-md-4"><div class="chart-box"><h6>Weekly Trend</h6><canvas id="trendChart"></canvas></div></div>
+        <div class="col-md-4">
+            <div class="chart-box">
+                <h6>Severity</h6>
+                <canvas id="severityChart"></canvas>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="chart-box">
+                <h6>Barangay</h6>
+                <canvas id="barangayChart"></canvas>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="chart-box">
+                <h6>Weekly Trend</h6>
+                <canvas id="trendChart"></canvas>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -164,10 +222,11 @@
                         <th>Severity</th>
                         <th>Infestation Type</th>
                         <th>Reporter</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody id="recentReportsTable">
-                    <tr><td colspan="8" class="text-center text-muted">Loading...</td></tr>
+                    <tr><td colspan="9" class="text-center text-muted">Loading...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -181,6 +240,41 @@
     <div class="modal-content">
       <div class="modal-body p-0">
         <img id="modalPhoto" src="" class="w-100" style="border-radius:4px;">
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- EDIT SEVERITY MODAL -->
+<div class="modal fade" id="severityModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Update Severity</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-2">
+          <strong>Location:</strong>
+          <span id="severityLocation"></span>
+        </p>
+        <div class="mb-3">
+          <label for="severitySelect" class="form-label fw-bold">Severity</label>
+          <select id="severitySelect" class="form-select">
+            <option value="Pending">Pending</option>
+            <option value="Low">Low</option>
+            <option value="Moderate">Moderate</option>
+            <option value="High">High</option>
+            <option value="Critical">Critical</option>
+          </select>
+        </div>
+        <div id="severityError" class="alert alert-danger py-2 px-3 d-none small"></div>
+        <input type="hidden" id="severityReportId">
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary btn-sm" onclick="saveSeverity()">Save</button>
       </div>
     </div>
   </div>

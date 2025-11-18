@@ -132,13 +132,19 @@ function updateHeatmap() {
 
     const points = window.allReports
         .filter(r => r.lat && r.lng)
-        .map(r => [
-            r.lat,
-            r.lng,
-            r.severity === "Critical" ? 1.0 :
-            r.severity === "High" ? 0.9 :
-            r.severity === "Moderate" ? 0.6 : 0.3
-        ]);
+        .map(r => {
+            const sev = r.severity;
+            const weight =
+                sev === "Critical" ? 1.0 :
+                sev === "High" ? 0.9 :
+                sev === "Moderate" ? 0.6 :
+                sev === "Low" ? 0.3 :
+                null; // Pending or unknown not included in heatmap
+
+            if (weight === null) return null;
+            return [r.lat, r.lng, weight];
+        })
+        .filter(p => p !== null);
 
     heatLayer = L.heatLayer(points, {
         radius: 25,
@@ -157,11 +163,14 @@ function updateMarkers() {
     window.allReports.forEach(r => {
         if (!r.lat || !r.lng) return;
 
+        const sev = r.severity || "Pending";
+
         let color =
-            r.severity === "Critical" ? "#6a00ff" :
-            r.severity === "High" ? "red" :
-            r.severity === "Moderate" ? "orange" :
-            "green";
+            sev === "Critical" ? "#6a00ff" :
+            sev === "High" ? "red" :
+            sev === "Moderate" ? "orange" :
+            sev === "Low" ? "green" :
+            "#6c757d"; // Pending
 
         const marker = L.circleMarker([r.lat, r.lng], {
             radius: 9,
@@ -171,10 +180,10 @@ function updateMarkers() {
         });
 
         marker.bindPopup(`
-            <strong>${r.barangay}, ${r.municipality}</strong><br>
-            <small>${r.infestation_type}</small><br>
-            <b>Severity:</b> ${r.severity}<br>
-            <b>Date:</b> ${r.date}<br>
+            <strong>${r.barangay || ""}, ${r.municipality || ""}</strong><br>
+            <small>${r.infestation_type || ""}</small><br>
+            <b>Severity:</b> ${sev}<br>
+            <b>Date:</b> ${r.date || ""}<br>
             <img src="${r.photo || '/static/icons/icon-192.png'}" 
                  style="width:120px;border-radius:5px;margin-top:4px;">
         `);
@@ -212,7 +221,9 @@ function updateCharts() {
 
     window.allReports.forEach(r => {
         if (severityCount[r.severity] !== undefined) severityCount[r.severity]++;
-        if (r.barangay) barangayCount[r.barangay] = (barangayCount[r.barangay] || 0) + 1;
+        if (r.barangay) {
+            barangayCount[r.barangay] = (barangayCount[r.barangay] || 0) + 1;
+        }
 
         if (r.date) {
             const day = r.date.substring(0, 10);
@@ -269,14 +280,14 @@ function drawTrendChart(data) {
 
 
 // -----------------------------------------------
-// RECENT REPORTS TABLE + PHOTO THUMBNAILS
+// RECENT REPORTS TABLE + PHOTO + ADMIN SEVERITY
 // -----------------------------------------------
 function updateRecentReportsTable() {
     const tbody = document.getElementById("recentReportsTable");
     tbody.innerHTML = "";
 
     if (!window.allReports.length) {
-        tbody.innerHTML = `<tr><td colspan="8" class="text-center text-muted">No reports found</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted">No reports found</td></tr>`;
         return;
     }
 
@@ -285,6 +296,13 @@ function updateRecentReportsTable() {
 
     recent.forEach(r => {
         const photo = r.photo || "/static/icons/icon-192.png";
+        const sev = r.severity || "Pending";
+        const sevClass =
+            sev === "Critical" ? "danger" :
+            sev === "High" ? "warning" :
+            sev === "Moderate" ? "info" :
+            sev === "Low" ? "success" :
+            "secondary";
 
         const tr = document.createElement("tr");
         tr.innerHTML = `
@@ -299,14 +317,20 @@ function updateRecentReportsTable() {
             <td>${r.municipality || "-"}</td>
             <td>${r.barangay || "-"}</td>
             <td>
-                <span class="badge bg-${
-                    r.severity === "Critical" ? "danger" :
-                    r.severity === "High" ? "warning" :
-                    r.severity === "Moderate" ? "info" : "success"
-                }">${r.severity}</span>
+                <span class="badge bg-${sevClass}">${sev}</span>
             </td>
             <td>${r.infestation_type || "-"}</td>
             <td>${r.reporter || "Unknown"}</td>
+            <td class="text-center">
+                <button 
+                    class="btn btn-sm btn-outline-primary"
+                    data-report-id="${r.id}"
+                    data-current-severity="${sev}"
+                    data-location="${(r.barangay || '')}, ${(r.municipality || '')}"
+                    onclick="openSeverityModalFromButton(this)">
+                    Set severity
+                </button>
+            </td>
         `;
 
         tbody.appendChild(tr);
@@ -315,11 +339,74 @@ function updateRecentReportsTable() {
 
 
 // -----------------------------------------------
-// MODAL: VIEW FULL PHOTO
+// MODALS
 // -----------------------------------------------
 function openPhotoModal(photoUrl) {
     document.getElementById("modalPhoto").src = photoUrl;
     new bootstrap.Modal(document.getElementById("photoModal")).show();
+}
+
+
+// --- Severity Modal helpers ---
+function openSeverityModalFromButton(btn) {
+    const id = btn.getAttribute("data-report-id");
+    const severity = btn.getAttribute("data-current-severity") || "Pending";
+    const locationText = btn.getAttribute("data-location") || "";
+
+    openSeverityModal(id, severity, locationText);
+}
+
+function openSeverityModal(reportId, currentSeverity, locationText) {
+    document.getElementById("severityReportId").value = reportId;
+    document.getElementById("severitySelect").value = currentSeverity || "Pending";
+    document.getElementById("severityLocation").innerText = locationText;
+
+    const errorBox = document.getElementById("severityError");
+    errorBox.classList.add("d-none");
+    errorBox.textContent = "";
+
+    const modal = new bootstrap.Modal(document.getElementById("severityModal"));
+    modal.show();
+}
+
+async function saveSeverity() {
+    const reportId = document.getElementById("severityReportId").value;
+    const severity = document.getElementById("severitySelect").value;
+    const errorBox = document.getElementById("severityError");
+
+    errorBox.classList.add("d-none");
+    errorBox.textContent = "";
+
+    if (!reportId) {
+        errorBox.textContent = "Missing report ID.";
+        errorBox.classList.remove("d-none");
+        return;
+    }
+
+    try {
+        const res = await fetch("/api/update_severity", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: reportId, severity })
+        });
+
+        const data = await res.json();
+
+        if (data.status !== "success") {
+            throw new Error(data.error || "Failed to update severity");
+        }
+
+        const modalEl = document.getElementById("severityModal");
+        const modal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+        modal.hide();
+
+        updateReports(); // refresh dashboard
+
+    } catch (err) {
+        console.error("Failed to update severity:", err);
+        errorBox.textContent = "Failed to update severity. Please try again.";
+        errorBox.classList.remove("d-none");
+    }
 }
 
 
