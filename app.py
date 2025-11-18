@@ -35,52 +35,25 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
-
-# --------------------------------------------------------------------
-# AUTO FIX BROKEN USER TABLE
-# --------------------------------------------------------------------
-def fix_user_table():
-    with app.app_context():
-        try:
-            engine = db.engine
-
-            # Check if "users" table exists
-            table_exists = engine.dialect.has_table(engine.connect(), "users")
-
-            if not table_exists:
-                print("⚠ Users table missing. Creating new table...")
-                db.create_all()
-                return
-
-            # Check columns
-            result = engine.execute(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_name='users';"
-            ).fetchall()
-            columns = [r[0] for r in result]
-
-            if "password" not in columns:
-                print("⚠ Missing 'password' column. Recreating users table...")
-                engine.execute('DROP TABLE IF EXISTS "users" CASCADE;')
-                db.create_all()
-                print("✔ Users table recreated.")
-
-        except Exception as e:
-            print("❌ Error fixing users table:", e)
-
-
-# Execute auto-repair
-fix_user_table()
-
-
 # --------------------------------------------------------------------
 # MODELS
 # --------------------------------------------------------------------
 class User(db.Model):
-    __tablename__ = "users"  # important fix
+    __tablename__ = "users"
+
     id = db.Column(db.Integer, primary_key=True)
+
+    # login fields
     username = db.Column(db.String(120), unique=True)
     password = db.Column(db.String(120))
+
+    # NEW FIELDS
+    full_name = db.Column(db.String(120))
+    email = db.Column(db.String(120))
+    contact = db.Column(db.String(120))
+    address = db.Column(db.String(200))
+
+    is_admin = db.Column(db.Boolean, default=False)
 
 
 class Report(db.Model):
@@ -99,53 +72,73 @@ class Report(db.Model):
 
 
 # --------------------------------------------------------------------
-# DEMO DATA SEED
+# AUTO ADD MISSING COLUMNS (NO SHELL REQUIRED)
+# --------------------------------------------------------------------
+def add_missing_columns():
+    engine = db.engine
+    existing = engine.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_name='users';"
+    ).fetchall()
+
+    columns = [c[0] for c in existing]
+
+    needed = {
+        "full_name": "VARCHAR(120)",
+        "email": "VARCHAR(120)",
+        "contact": "VARCHAR(120)",
+        "address": "VARCHAR(200)",
+        "is_admin": "BOOLEAN DEFAULT FALSE"
+    }
+
+    for col, dtype in needed.items():
+        if col not in columns:
+            print(f"⚠ Adding missing column: {col}")
+            engine.execute(f'ALTER TABLE "users" ADD COLUMN {col} {dtype};')
+            print(f"✔ Added {col}")
+
+
+with app.app_context():
+    db.create_all()
+    add_missing_columns()
+
+# --------------------------------------------------------------------
+# READ DEMO REPORTS
 # --------------------------------------------------------------------
 DEMO_REPORTS = []
-demo_file_path = os.path.join(os.path.dirname(__file__), "demo_reports.json")
+demo_file = os.path.join(os.path.dirname(__file__), "demo_reports.json")
 
-if os.path.exists(demo_file_path):
-    with open(demo_file_path, "r") as f:
-        DEMO_REPORTS = json.load(f)
+if os.path.exists(demo_file):
+    DEMO_REPORTS = json.load(open(demo_file))
 
 
 def seed_demo_reports():
     if Report.query.count() > 0:
         return
-    if not DEMO_REPORTS:
-        return
-
-    print("⚠ Seeding demo reports...")
 
     for r in DEMO_REPORTS:
-        report = Report(
-            reporter=r["reporter"],
-            province=r["province"],
-            municipality=r["municipality"],
-            barangay=r["barangay"],
-            severity=r["severity"],
-            infestation_type=r["infestation_type"],
-            lat=r["lat"],
-            lng=r["lng"],
-            description=r["description"],
-            photo=None,
-            date=datetime.strptime(
-                r["gps_metadata"]["timestamp"], "%Y-%m-%dT%H:%M:%SZ"
-            ),
+        db.session.add(
+            Report(
+                reporter=r["reporter"],
+                province=r["province"],
+                municipality=r["municipality"],
+                barangay=r["barangay"],
+                severity=r["severity"],
+                infestation_type=r["infestation_type"],
+                lat=r["lat"],
+                lng=r["lng"],
+                description=r["description"],
+                date=datetime.strptime(
+                    r["gps_metadata"]["timestamp"], "%Y-%m-%dT%H:%M:%SZ"
+                ),
+            )
         )
-        db.session.add(report)
-
     db.session.commit()
-    print("✔ Demo reports inserted.")
 
 
-with app.app_context():
-    db.create_all()
-    seed_demo_reports()
-
+seed_demo_reports()
 
 # --------------------------------------------------------------------
-# AUTH ROUTES
+# SIGNUP WITH FULL USER INFO
 # --------------------------------------------------------------------
 @app.route("/signup", methods=["POST"])
 def signup():
@@ -155,60 +148,70 @@ def signup():
 
     username = data.get("username")
     password = data.get("password")
+    full_name = data.get("fullName")
+    email = data.get("email")
+    contact = data.get("contact")
+    address = data.get("address")
+    admin_code = data.get("adminCode")
 
     if not username or not password:
-        return jsonify({"error": "Username and password required"}), 400
+        return jsonify({"error": "Missing username or password"}), 400
 
     if User.query.filter_by(username=username).first():
         return jsonify({"error": "Username already exists"}), 400
 
-    user = User(username=username, password=password)
+    ADMIN_CODE = os.environ.get("ADMIN_CODE", "ADMIN123")
+    is_admin = (admin_code == ADMIN_CODE)
+
+    user = User(
+        username=username,
+        password=password,
+        full_name=full_name,
+        email=email,
+        contact=contact,
+        address=address,
+        is_admin=is_admin,
+    )
+
     db.session.add(user)
     db.session.commit()
 
-    return jsonify({"message": "Signup successful"})
+    return jsonify({"message": "Signup successful", "is_admin": is_admin})
 
 
 @app.route("/api/register", methods=["POST"])
 def api_register():
     return signup()
 
-
-# ------------------------------ LOGIN FIXED ------------------------------
+# --------------------------------------------------------------------
+# LOGIN
+# --------------------------------------------------------------------
 @app.route("/login", methods=["POST"])
 def login_submit():
 
-    # HTML form login
-    if request.form:
+    if request.form:  # HTML form
         username = request.form.get("username")
         password = request.form.get("password")
-
-    # JSON login (mobile app)
-    else:
+    else:  # JSON (mobile)
         data = request.get_json(silent=True)
-        if not data:
-            return jsonify({"error": "Invalid request"}), 400
         username = data.get("username")
         password = data.get("password")
 
     user = User.query.filter_by(username=username, password=password).first()
 
     if not user:
-        # HTML FORM → redirect with error
         if request.form:
             return redirect("/login?error=1")
-
-        # JSON → API response
         return jsonify({"success": False, "error": "Invalid credentials"}), 401
 
-    # SUCCESS — login user
+    # store session
     session["user"] = username
+    session["is_admin"] = user.is_admin
 
     if request.is_json:
         return jsonify({"success": True})
 
     return redirect("/")
-
 
 
 @app.route("/login")
@@ -217,12 +220,10 @@ def login_page():
         return redirect("/")
     return render_template("login.html")
 
-
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect("/login")
-
 
 # --------------------------------------------------------------------
 # MAIN PAGES
@@ -233,21 +234,17 @@ def dashboard():
         return redirect("/login")
     return render_template("dashboard.html")
 
-
 @app.route("/register")
 def register_page():
     return render_template("register.html")
-
 
 @app.route("/no_access")
 def no_access_page():
     return render_template("no_access.html")
 
-
 @app.route("/offline.html")
 def offline_page():
     return render_template("offline.html")
-
 
 @app.route("/reports/print")
 def print_reports():
@@ -256,41 +253,33 @@ def print_reports():
     reports = Report.query.order_by(Report.date.desc()).all()
     return render_template("reports_print.html", reports=reports, now=datetime.utcnow)
 
-
 # --------------------------------------------------------------------
-# API ROUTES
+# REPORT APIS
 # --------------------------------------------------------------------
 @app.route("/api/barangays", methods=["GET"])
 def get_barangays():
-    brgys = [b[0] for b in db.session.query(Report.barangay).distinct().all()]
-    return jsonify(brgys)
-
+    return jsonify([b[0] for b in db.session.query(Report.barangay).distinct().all()])
 
 @app.route("/api/reports", methods=["GET"])
 def get_reports():
     query = Report.query
 
-    barangay = request.args.get("barangay")
-    severity = request.args.get("severity")
-    infestation_type = request.args.get("infestation_type")
-    start_date = request.args.get("start_date")
-    end_date = request.args.get("end_date")
+    if request.args.get("barangay"):
+        query = query.filter_by(barangay=request.args.get("barangay"))
+    if request.args.get("severity"):
+        query = query.filter_by(severity=request.args.get("severity"))
+    if request.args.get("infestation_type"):
+        query = query.filter_by(infestation_type=request.args.get("infestation_type"))
 
-    if barangay:
-        query = query.filter_by(barangay=barangay)
-    if severity:
-        query = query.filter_by(severity=severity)
-    if infestation_type:
-        query = query.filter_by(infestation_type=infestation_type)
-
-    # date filtering
     try:
-        if start_date:
-            d = datetime.strptime(start_date, "%Y-%m-%d")
-            query = query.filter(Report.date >= d)
-        if end_date:
-            d = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
-            query = query.filter(Report.date <= d)
+        if request.args.get("start_date"):
+            sd = datetime.strptime(request.args.get("start_date"), "%Y-%m-%d")
+            query = query.filter(Report.date >= sd)
+
+        if request.args.get("end_date"):
+            ed = datetime.strptime(request.args.get("end_date"), "%Y-%m-%d") + timedelta(days=1)
+            query = query.filter(Report.date <= ed)
+
     except:
         pass
 
@@ -310,11 +299,10 @@ def get_reports():
             "description": r.description,
             "photo": r.photo,
             "date": r.date.strftime("%Y-%m-%d %H:%M:%S"),
-            "status": "Pending",
+            "status": "Pending"
         }
         for r in reports
     ])
-
 
 # --------------------------------------------------------------------
 # RENDER ENTRY POINT
