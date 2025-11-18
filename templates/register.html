@@ -4,135 +4,88 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Sign Up • GASsight</title>
-  <link
-    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-    rel="stylesheet"
-  />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
 
   <style>
-    body {
-      background: #f6f8fa;
-      font-family: "Segoe UI", sans-serif;
-    }
-
+    body { background: #f6f8fa; font-family: "Segoe UI", sans-serif; }
     .register-card {
-      max-width: 450px;
-      margin: 4% auto;
-      padding: 2rem 2.5rem;
-      background: #fff;
-      border-radius: 15px;
+      max-width: 450px; margin: 4% auto; padding: 2rem 2.5rem;
+      background: #fff; border-radius: 15px;
       box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
       text-align: center;
     }
-
-    .register-logo {
-      width: 100px;
-      height: 100px;
-      margin-bottom: 15px;
-      object-fit: contain;
-    }
-
-    .form-control {
-      border-radius: 30px;
-      padding: 0.75rem 1.25rem;
-      margin-bottom: 18px;
-    }
-
+    .register-logo { width: 100px; height: 100px; margin-bottom: 15px; }
+    .form-control { border-radius: 30px; padding: 0.75rem 1.25rem; margin-bottom: 18px; }
     .btn-register {
-      background-color: #2c7a2c;
-      color: white;
-      border-radius: 30px;
-      padding: 0.7rem;
-      font-weight: 500;
-      transition: all 0.3s;
+      background-color: #2c7a2c; color: white;
+      border-radius: 30px; padding: 0.7rem;
+      font-weight: 500; transition: all 0.3s;
     }
-
-    .btn-register:hover {
-      background-color: #256b25;
-      transform: translateY(-1px);
-    }
-
-    .footer {
-      text-align: center;
-      margin-top: 2rem;
-      color: #666;
-      font-size: 0.9rem;
-    }
+    .btn-register:hover { background-color: #256b25; transform: translateY(-1px); }
   </style>
 </head>
 
 <body>
 
   <div class="register-card">
-    <img
-      src="{{ url_for('static', filename='images/snail-logo.png') }}"
-      alt="Logo"
-      class="register-logo"
-    />
+    <img src="{{ url_for('static', filename='images/snail-logo.png') }}" class="register-logo" />
 
     <h4 class="mb-4 fw-bold">Create Account</h4>
 
+    <div id="errorBox" class="alert alert-danger d-none"></div>
+
     <form id="registerForm">
-      <input type="text" class="form-control" id="username" placeholder="Choose a username" required />
-      <input type="password" class="form-control" id="password" placeholder="Enter a secure password" required />
+      <input type="text" id="username" class="form-control" placeholder="Choose a username" required />
+      <input type="password" id="password" class="form-control" placeholder="Enter password" required />
 
-      <input type="text" class="form-control" id="fullName" placeholder="Full Name" required />
-      <input type="email" class="form-control" id="email" placeholder="Email" required />
-      <input type="text" class="form-control" id="contact" placeholder="Contact Number" required />
-      <input type="text" class="form-control" id="address" placeholder="Address" required />
+      <input type="text" id="fullName" class="form-control" placeholder="Full Name" required />
+      <input type="email" id="email" class="form-control" placeholder="Email" required />
+      <input type="text" id="contact" class="form-control" placeholder="Contact Number" required />
+      <input type="text" id="address" class="form-control" placeholder="Address" required />
 
-      <input type="text" class="form-control" id="adminCode" placeholder="Admin Code (optional)" />
-
-      <small class="text-muted">
-        Matches server ADMIN_CODE to grant admin role.
-      </small>
+      <input type="text" id="adminCode" class="form-control" placeholder="Admin Code (optional)" />
 
       <button type="submit" class="btn btn-register w-100 mt-3">Sign Up</button>
     </form>
 
-    <p class="mt-3 mb-0">
+    <p class="mt-3">
       Already have an account?
       <a href="{{ url_for('login_page') }}" class="text-success fw-semibold">Login</a>
     </p>
   </div>
 
-  <!-- FIXED FOOTER -->
-  <div class="footer">
-    GASsight © <span id="year"></span>
-  </div>
-  <script>
-    document.getElementById("year").textContent = new Date().getFullYear();
-  </script>
+<script>
+document.getElementById("registerForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
 
-  <!-- Register Form JS -->
-  <script>
-    document.getElementById("registerForm").addEventListener("submit", async (e) => {
-        e.preventDefault();
+  let payload = {
+    username: username.value.trim(),
+    password: password.value.trim(),
+    fullName: fullName.value.trim(),
+    email: email.value.trim(),
+    contact: contact.value.trim(),
+    address: address.value.trim(),
+    adminCode: adminCode.value.trim(),
+  };
 
-        const username = document.getElementById("username").value.trim();
-        const password = document.getElementById("password").value.trim();
+  const res = await fetch("/api/register", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(payload),
+  });
 
-        // Your backend only accepts username + password
-        const payload = { username, password };
+  const data = await res.json();
 
-        const res = await fetch("/api/register", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-        });
+  if (!res.ok) {
+    errorBox.classList.remove("d-none");
+    errorBox.textContent = data.error || "Registration failed.";
+    return;
+  }
 
-        const data = await res.json();
-
-        if (res.ok && data.message === "Signup successful") {
-            alert("Registration successful! Please login.");
-            window.location.href = "/login";
-        } else {
-            alert(data.error || "Registration failed");
-        }
-    });
+  alert("Registration successful!");
+  window.location.href = "/login";
+});
 </script>
 
-
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
