@@ -1,9 +1,9 @@
 import os
 import uuid
-from datetime import datetime, timedelta
 import io
 import csv
 import random
+from datetime import datetime, timedelta
 
 import requests
 from flask import (
@@ -22,202 +22,12 @@ from flask_jwt_extended import (
     jwt_required, get_jwt_identity, get_jwt
 )
 from flask_cors import CORS
-
-# SQLAlchemy helpers for migrations
 from sqlalchemy import text, inspect
 
-# optional Excel support
-try:
-    from openpyxl import Workbook
-except ImportError:  # optional dependency
-    Workbook = None
+# ============================================================
+# DEMO REPORTS (Ilocos Sur)
+# ============================================================
 
-# =================================================
-# APP INITIALIZATION
-# =================================================
-app = Flask(__name__, static_folder="static", template_folder="templates")
-
-CORS(app, resources={r"/api/*": {"origins": "*"}})
-
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-key")
-app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "jwt-secret")
-
-# cookies (for web login)
-app.config["SESSION_COOKIE_SECURE"] = True
-app.config["SESSION_COOKIE_SAMESITE"] = "None"
-app.config["REMEMBER_COOKIE_SECURE"] = True
-app.config["REMEMBER_COOKIE_SAMESITE"] = "None"
-
-# token lifetime
-app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(minutes=30)
-app.config["JWT_REFRESH_TOKEN_EXPIRES"] = timedelta(days=30)
-
-jwt = JWTManager(app)
-login_manager = LoginManager(app)
-login_manager.login_view = "login"
-
-# token blocklist (for logout)
-BLOCKLIST = set()
-
-
-@jwt.token_in_blocklist_loader
-def is_token_revoked(jwt_header, jwt_payload):
-    return jwt_payload.get("jti") in BLOCKLIST
-
-
-# =================================================
-# DATABASE CONFIGURATION
-# =================================================
-db_url = os.environ.get("DATABASE_URL")
-
-if db_url and db_url.startswith("postgres://"):
-    db_url = db_url.replace("postgres://", "postgresql://", 1)
-
-if not db_url:
-    print("⚠️ WARNING: No DATABASE_URL found. Using SQLite.")
-    db_url = "sqlite:///gassight.db"
-
-app.config["SQLALCHEMY_DATABASE_URI"] = db_url
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-
-db = SQLAlchemy(app)
-
-# =================================================
-# UPLOADS
-# =================================================
-app.config["UPLOAD_FOLDER"] = os.path.join(app.static_folder, "uploads")
-os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
-
-ADMIN_CODE = os.environ.get("ADMIN_CODE", "GASSIGHT_ADMIN")
-FIREBASE_SERVER_KEY = os.environ.get("FIREBASE_SERVER_KEY")  # optional for push
-
-ALLOWED_IMAGE_EXT = {"jpg", "jpeg", "png"}
-
-# =================================================
-# MODELS
-# =================================================
-class Province(db.Model):
-    __tablename__ = "provinces"
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(200), unique=True, nullable=False)
-
-
-class Municipality(db.Model):
-    __tablename__ = "municipalities"
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(200), nullable=False)
-    province_id = db.Column(db.Integer, db.ForeignKey("provinces.id"), nullable=False)
-
-    province = db.relationship("Province")
-
-
-class Barangay(db.Model):
-    __tablename__ = "barangays"
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(200), nullable=False)
-    municipality_id = db.Column(db.Integer, db.ForeignKey("municipalities.id"), nullable=False)
-
-    municipality = db.relationship("Municipality")
-
-
-class User(db.Model, UserMixin):
-    __tablename__ = "user"  # reserved word, will be quoted in Postgres
-
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(120), unique=True, nullable=False)
-    password_hash = db.Column(db.String(256), nullable=False)
-
-    # basic info
-    full_name = db.Column(db.String(200))
-    email = db.Column(db.String(200), unique=True)
-    contact = db.Column(db.String(100))
-    address = db.Column(db.String(255))
-
-    # role: admin / farmer
-    is_admin = db.Column(db.Boolean, default=False)
-
-    # home location for notifications
-    province = db.Column(db.String(120))
-    municipality = db.Column(db.String(120))
-    barangay = db.Column(db.String(120))
-
-    def set_password(self, pw: str):
-        self.password_hash = generate_password_hash(pw)
-
-    def check_password(self, pw: str) -> bool:
-        return check_password_hash(self.password_hash, pw)
-
-
-class Report(db.Model):
-    __tablename__ = "report"
-
-    id = db.Column(db.Integer, primary_key=True)
-    date = db.Column(db.DateTime, default=datetime.utcnow)
-
-    reporter = db.Column(db.String(120))
-
-    province = db.Column(db.String(120))
-    municipality = db.Column(db.String(120))
-    barangay = db.Column(db.String(120))
-
-    severity = db.Column(db.String(50))
-    status = db.Column(db.String(50), default="Pending")
-    action_status = db.Column(db.String(50), default="Not Resolved")
-
-    # infestation type (GAS, RBB, etc.)
-    infestation_type = db.Column(db.String(120))
-
-    photo = db.Column(db.String(255))
-
-    # GEO-TAGGING
-    lat = db.Column(db.Float)   # latitude
-    lng = db.Column(db.Float)   # longitude
-
-    # Optional textual description of the report
-    description = db.Column(db.String(500))
-
-    user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
-
-
-class Notification(db.Model):
-    __tablename__ = "notification"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
-
-    title = db.Column(db.String(200), nullable=False)
-    body = db.Column(db.String(500), nullable=False)
-
-    province = db.Column(db.String(120))
-    municipality = db.Column(db.String(120))
-    barangay = db.Column(db.String(120))
-
-    severity = db.Column(db.String(50))
-    infestation_type = db.Column(db.String(120))
-
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    is_read = db.Column(db.Boolean, default=False)
-
-
-class FcmToken(db.Model):
-    __tablename__ = "fcm_token"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
-    token = db.Column(db.String(512), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    last_seen = db.Column(db.DateTime, default=datetime.utcnow)
-
-
-@login_manager.user_loader
-def load_user(user_id):
-    # Warning about Query.get is harmless; can be changed later if desired
-    return User.query.get(int(user_id))
-
-
-# =================================================
-# DEMO REPORTS + SEEDER
-# =================================================
 DEMO_REPORTS = [
     {
         "reporter": "DemoUser1",
@@ -458,71 +268,179 @@ DEMO_REPORTS = [
             "lng": 120.4503,
             "timestamp": "2025-01-17T08:10:00Z"
         }
-    }
+    },
 ]
 
+# ============================================================
+# APP INITIALIZATION
+# ============================================================
 
-def _parse_demo_timestamp(ts: str) -> datetime:
-    """Parse ISO timestamp; fallback to utcnow on failure."""
-    if not ts:
-        return datetime.utcnow()
-    try:
-        if ts.endswith("Z"):
-            return datetime.fromisoformat(ts.replace("Z", "+00:00"))
-        return datetime.fromisoformat(ts)
-    except Exception:
-        return datetime.utcnow()
+app = Flask(__name__, static_folder="static", template_folder="templates")
+CORS(app, resources={r"/api/*": {"origins": "*"}})
+
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-key")
+app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "jwt-secret")
+
+app.config["SESSION_COOKIE_SECURE"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "None"
+app.config["REMEMBER_COOKIE_SECURE"] = True
+app.config["REMEMBER_COOKIE_SAMESITE"] = "None"
+
+app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(minutes=30)
+app.config["JWT_REFRESH_TOKEN_EXPIRES"] = timedelta(days=30)
+
+jwt = JWTManager(app)
+login_manager = LoginManager(app)
+login_manager.login_view = "login"
+BLOCKLIST = set()
+
+@jwt.token_in_blocklist_loader
+def is_token_revoked(jwt_header, jwt_payload):
+    return jwt_payload.get("jti") in BLOCKLIST
+
+# ============================================================
+# DATABASE
+# ============================================================
+
+db_url = os.environ.get("DATABASE_URL")
+if db_url and db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+if not db_url:
+    print("⚠️ WARNING: No DATABASE_URL found. Using SQLite.")
+    db_url = "sqlite:///gassight.db"
+
+app.config["SQLALCHEMY_DATABASE_URI"] = db_url
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+db = SQLAlchemy(app)
+
+# ============================================================
+# UPLOADS
+# ============================================================
+
+app.config["UPLOAD_FOLDER"] = os.path.join(app.static_folder, "uploads")
+os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+
+ADMIN_CODE = os.environ.get("ADMIN_CODE", "GASSIGHT_ADMIN")
+FIREBASE_SERVER_KEY = os.environ.get("FIREBASE_SERVER_KEY")
+ALLOWED_IMAGE_EXT = {"jpg", "jpeg", "png"}
+
+# ============================================================
+# MODELS
+# ============================================================
+
+class Province(db.Model):
+    __tablename__ = "provinces"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), unique=True, nullable=False)
 
 
-def seed_demo_reports():
-    """
-    Seed demo reports into the main 'report' table.
-
-    Runs ONLY if no 'DemoUser%' reports exist, so it won't duplicate
-    every deploy.
-    """
-    existing = Report.query.filter(Report.reporter.like("DemoUser%")).first()
-    if existing:
-        print("ℹ️ Demo reports already present; skipping seeding.")
-        return
-
-    for r in DEMO_REPORTS:
-        ts = r.get("gps_metadata", {}).get("timestamp")
-        date_val = _parse_demo_timestamp(ts)
-
-        sev = r.get("severity") or "Low"
-        status_val = "Pending" if sev in ("High", "Critical") else "In Progress"
-
-        report = Report(
-            date=date_val,
-            reporter=r.get("reporter"),
-            province=r.get("province"),
-            municipality=r.get("municipality"),
-            barangay=r.get("barangay"),
-            severity=sev,
-            status=status_val,
-            action_status="Not Resolved",
-            infestation_type=r.get("infestation_type"),
-            lat=r.get("lat"),
-            lng=r.get("lng"),
-            description=r.get("description"),
-            user_id=None,
-        )
-        db.session.add(report)
-
-    db.session.commit()
-    print(f"✅ Seeded {len(DEMO_REPORTS)} demo reports into 'report' table.")
+class Municipality(db.Model):
+    __tablename__ = "municipalities"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    province_id = db.Column(db.Integer, db.ForeignKey("provinces.id"), nullable=False)
+    province = db.relationship("Province")
 
 
-# =================================================
-# SIMPLE AUTO-MIGRATIONS (NO RENDER SHELL NEEDED)
-# =================================================
+class Barangay(db.Model):
+    __tablename__ = "barangays"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    municipality_id = db.Column(db.Integer, db.ForeignKey("municipalities.id"), nullable=False)
+    municipality = db.relationship("Municipality")
+
+
+class User(db.Model, UserMixin):
+    __tablename__ = "user"
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(120), unique=True, nullable=False)
+    password_hash = db.Column(db.String(256), nullable=False)
+
+    full_name = db.Column(db.String(200))
+    email = db.Column(db.String(200), unique=True)
+    contact = db.Column(db.String(100))
+    address = db.Column(db.String(255))
+
+    is_admin = db.Column(db.Boolean, default=False)
+
+    province = db.Column(db.String(120))
+    municipality = db.Column(db.String(120))
+    barangay = db.Column(db.String(120))
+
+    def set_password(self, pw: str):
+        self.password_hash = generate_password_hash(pw)
+
+    def check_password(self, pw: str) -> bool:
+        return check_password_hash(self.password_hash, pw)
+
+
+class Report(db.Model):
+    __tablename__ = "report"
+
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.DateTime, default=datetime.utcnow)
+
+    reporter = db.Column(db.String(120))
+    province = db.Column(db.String(120))
+    municipality = db.Column(db.String(120))
+    barangay = db.Column(db.String(120))
+
+    severity = db.Column(db.String(50))
+    status = db.Column(db.String(50), default="Pending")
+    action_status = db.Column(db.String(50), default="Not Resolved")
+
+    infestation_type = db.Column(db.String(120))
+    photo = db.Column(db.String(255))
+
+    lat = db.Column(db.Float)
+    lng = db.Column(db.Float)
+
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+
+
+class Notification(db.Model):
+    __tablename__ = "notification"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+
+    title = db.Column(db.String(200), nullable=False)
+    body = db.Column(db.String(500), nullable=False)
+
+    province = db.Column(db.String(120))
+    municipality = db.Column(db.String(120))
+    barangay = db.Column(db.String(120))
+
+    severity = db.Column(db.String(50))
+    infestation_type = db.Column(db.String(120))
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    is_read = db.Column(db.Boolean, default=False)
+
+
+class FcmToken(db.Model):
+    __tablename__ = "fcm_token"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    token = db.Column(db.String(512), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_seen = db.Column(db.DateTime, default=datetime.utcnow)
+
+# ============================================================
+# LOGIN MANAGER
+# ============================================================
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+# ============================================================
+# SIMPLE AUTO-MIGRATIONS
+# ============================================================
+
 def run_simple_migrations():
-    """
-    Adds missing columns (lat, lng, infestation_type, description,
-    province, municipality, barangay) if they are not present yet.
-    Works for Postgres and SQLite.
-    """
     engine = db.engine
     inspector = inspect(engine)
     dialect = engine.dialect.name
@@ -535,49 +453,26 @@ def run_simple_migrations():
             print(f"⚠️ INSPECT ERROR for {table_name}.{col_name}: {e}")
             return False
 
-    # REPORT columns
     try:
         if not has_column("report", "lat"):
             db.session.execute(text("ALTER TABLE report ADD COLUMN lat DOUBLE PRECISION"))
-            print("✅ MIGRATION: added report.lat")
-
         if not has_column("report", "lng"):
             db.session.execute(text("ALTER TABLE report ADD COLUMN lng DOUBLE PRECISION"))
-            print("✅ MIGRATION: added report.lng")
-
         if not has_column("report", "infestation_type"):
             db.session.execute(text("ALTER TABLE report ADD COLUMN infestation_type TEXT"))
-            print("✅ MIGRATION: added report.infestation_type")
-
-        if not has_column("report", "description"):
-            db.session.execute(text("ALTER TABLE report ADD COLUMN description TEXT"))
-            print("✅ MIGRATION: added report.description")
     except Exception as e:
-        print("⚠️ MIGRATION ERROR for report table:", e)
+        print("⚠️ MIGRATION ERROR (report):", e)
 
-    # USER columns – table is named "user" (reserved, quoted in Postgres)
     user_table_sql = '"user"' if dialect == "postgresql" else "user"
-
     try:
         if not has_column("user", "province"):
-            db.session.execute(
-                text(f"ALTER TABLE {user_table_sql} ADD COLUMN province VARCHAR(120)")
-            )
-            print("✅ MIGRATION: added user.province")
-
+            db.session.execute(text(f"ALTER TABLE {user_table_sql} ADD COLUMN province VARCHAR(120)"))
         if not has_column("user", "municipality"):
-            db.session.execute(
-                text(f"ALTER TABLE {user_table_sql} ADD COLUMN municipality VARCHAR(120)")
-            )
-            print("✅ MIGRATION: added user.municipality")
-
+            db.session.execute(text(f"ALTER TABLE {user_table_sql} ADD COLUMN municipality VARCHAR(120)"))
         if not has_column("user", "barangay"):
-            db.session.execute(
-                text(f"ALTER TABLE {user_table_sql} ADD COLUMN barangay VARCHAR(120)")
-            )
-            print("✅ MIGRATION: added user.barangay")
+            db.session.execute(text(f"ALTER TABLE {user_table_sql} ADD COLUMN barangay VARCHAR(120)"))
     except Exception as e:
-        print("⚠️ MIGRATION ERROR for user table:", e)
+        print("⚠️ MIGRATION ERROR (user):", e)
 
     try:
         db.session.commit()
@@ -585,36 +480,78 @@ def run_simple_migrations():
         db.session.rollback()
         print("⚠️ MIGRATION COMMIT ERROR:", e)
 
+# ============================================================
+# DEMO SEEDER
+# ============================================================
 
-# Run table creation + migrations + demo seed on startup
+def seed_demo_reports():
+    """
+    Insert DEMO_REPORTS into the 'report' table once.
+    We only seed if there are no existing reports.
+    """
+    if Report.query.count() > 0:
+        return
+
+    # Attach reports to first user or create a simple admin if none
+    user = User.query.filter_by(is_admin=True).first() or User.query.first()
+    if user is None:
+        user = User(username="admin", is_admin=True)
+        user.set_password("admin123")
+        db.session.add(user)
+        db.session.flush()
+
+    now = datetime.utcnow()
+    for idx, data in enumerate(DEMO_REPORTS):
+        # Make demo dates recent (last N days)
+        demo_date = now - timedelta(days=len(DEMO_REPORTS) - idx)
+        r = Report(
+            date=demo_date,
+            reporter=data["reporter"],
+            province=data["province"],
+            municipality=data["municipality"],
+            barangay=data["barangay"],
+            severity=data["severity"],
+            infestation_type=data["infestation_type"],
+            lat=data["lat"],
+            lng=data["lng"],
+            photo="",
+            status="Pending" if data["severity"] in ("High", "Critical") else "In Progress",
+            action_status="Not Resolved",
+            user_id=user.id,
+        )
+        db.session.add(r)
+
+    db.session.commit()
+    print(f"✅ Seeded {len(DEMO_REPORTS)} demo reports")
+
+# ============================================================
+# STARTUP: create tables, run migrations, seed demo
+# ============================================================
+
 with app.app_context():
     db.create_all()
     run_simple_migrations()
+    # Always safe: seeder will skip if reports already exist
     seed_demo_reports()
 
-
-# =================================================
+# ============================================================
 # HELPERS
-# =================================================
+# ============================================================
+
 def sanitize(text_val):
     if text_val is None:
         return None
     return text_val.strip()
 
-
 def allowed_image(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_IMAGE_EXT
-
 
 def require_admin():
     if not current_user.is_authenticated or not current_user.is_admin:
         return redirect(url_for("no_access"))
 
-
 def send_fcm_notification(user, notif, extra_data=None):
-    """Send FCM push if FIREBASE_SERVER_KEY is configured and user has tokens."""
     if not FIREBASE_SERVER_KEY:
-        # If you haven't set the key, we silently skip push.
         return
 
     tokens = [t.token for t in FcmToken.query.filter_by(user_id=user.id).all()]
@@ -649,18 +586,14 @@ def send_fcm_notification(user, notif, extra_data=None):
     except Exception as e:
         print("⚠️ FCM send error:", e)
 
-
 def create_location_notifications(report: Report):
-    """Create notifications for farmers near the report location."""
     if not report.severity:
         return
 
-    # Only notify for High / Critical
     sev = report.severity.lower()
     if sev not in ("high", "critical"):
         return
 
-    # Target: same barangay first, then same municipality, then same province.
     q = User.query.filter(User.is_admin.is_(False))
 
     if report.barangay:
@@ -670,7 +603,6 @@ def create_location_notifications(report: Report):
     elif report.province:
         q = q.filter(User.province == report.province)
     else:
-        # no location info -> don't spam everyone
         return
 
     farmers = q.all()
@@ -693,7 +625,7 @@ def create_location_notifications(report: Report):
             infestation_type=report.infestation_type,
         )
         db.session.add(notif)
-        db.session.flush()  # to get notif.id for data payload
+        db.session.flush()
         send_fcm_notification(
             farmer,
             notif,
@@ -711,9 +643,7 @@ def create_location_notifications(report: Report):
 
     db.session.commit()
 
-
 def apply_report_filters(q, args):
-    """Reuse filters for JSON, CSV, Excel, and print views."""
     province_name = args.get("province")
     municipality_name = args.get("municipality")
     barangay_name = args.get("barangay")
@@ -724,16 +654,12 @@ def apply_report_filters(q, args):
 
     if province_name and province_name != "All":
         q = q.filter(Report.province == province_name)
-
     if municipality_name and municipality_name != "All":
         q = q.filter(Report.municipality == municipality_name)
-
     if barangay_name and barangay_name != "All":
         q = q.filter(Report.barangay == barangay_name)
-
     if severity and severity != "All":
         q = q.filter(Report.severity == severity)
-
     if infestation_type and infestation_type != "All":
         q = q.filter(Report.infestation_type == infestation_type)
 
@@ -747,24 +673,23 @@ def apply_report_filters(q, args):
 
     return q
 
-
-# =================================================
+# ============================================================
 # STATIC (PWA)
-# =================================================
+# ============================================================
+
 @app.route("/service-worker.js")
 def service_worker():
     return send_from_directory("static", "service-worker.js")
 
+# ============================================================
+# PAGE ROUTES (ADMIN)
+# ============================================================
 
-# =================================================
-# PAGE ROUTES (ADMIN WEB)
-# =================================================
 @app.route("/")
 def home():
     if not current_user.is_authenticated:
         return redirect(url_for("login"))
     return redirect(url_for("dashboard" if current_user.is_admin else "no_access"))
-
 
 @app.route("/dashboard")
 @login_required
@@ -773,12 +698,10 @@ def dashboard():
         return redirect(url_for("no_access"))
     return render_template("dashboard.html")
 
-
 @app.route("/no-access")
 @login_required
 def no_access():
     return render_template("no_access.html")
-
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -798,7 +721,6 @@ def login():
         return redirect(url_for("dashboard" if user.is_admin else "no_access"))
 
     return render_template("login.html")
-
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
@@ -837,21 +759,19 @@ def register():
 
     return render_template("register.html")
 
-
 @app.route("/logout")
 def logout():
     logout_user()
     return redirect(url_for("login"))
 
+# ============================================================
+# LOCATION APIs (for dropdowns – provinces/municipalities/barangays)
+# ============================================================
 
-# =================================================
-# API — LOCATION (FOR DROPDOWNS)
-# =================================================
 @app.route("/api/provinces")
 def api_provinces():
     data = Province.query.order_by(Province.name.asc()).all()
     return jsonify([p.name for p in data])
-
 
 @app.route("/api/municipalities")
 def api_municipalities():
@@ -862,7 +782,6 @@ def api_municipalities():
     data = q.order_by(Municipality.name.asc()).all()
     return jsonify([m.name for m in data])
 
-
 @app.route("/api/barangays")
 def api_barangays():
     municipality_name = request.args.get("municipality")
@@ -872,21 +791,12 @@ def api_barangays():
     data = q.order_by(Barangay.name.asc()).all()
     return jsonify([b.name for b in data])
 
+# ============================================================
+# MOBILE API — AUTH
+# ============================================================
 
-# =================================================
-# MOBILE API — SIGNUP / LOGIN / TOKEN CHECK
-# =================================================
 @app.route("/api/signup", methods=["POST"])
 def api_signup():
-    """
-    Body JSON:
-      {
-        username, password,
-        fullName?, email?, contact?, address?,
-        province?, municipality?, barangay?
-      }
-    Returns tokens on success.
-    """
     data = request.get_json() or {}
 
     username = sanitize(data.get("username", ""))
@@ -936,19 +846,13 @@ def api_signup():
         "username": username,
     }), 200
 
-
 @app.route("/api/login", methods=["POST"])
 def api_login():
-    """
-    Body JSON: {username, password}
-    Returns: {message, token, access_token, refresh_token}
-    """
     data = request.get_json() or {}
     username = sanitize(data.get("username", ""))
     password = data.get("password", "")
 
     user = User.query.filter_by(username=username).first()
-
     if not user or not user.check_password(password):
         return jsonify({"error": "Invalid credentials"}), 401
 
@@ -963,7 +867,6 @@ def api_login():
         "username": user.username,
     }), 200
 
-
 @app.route("/api/refresh", methods=["POST"])
 @jwt_required(refresh=True)
 def api_refresh():
@@ -975,13 +878,11 @@ def api_refresh():
         "access_token": access_token,
     }), 200
 
-
 @app.route("/api/check_token", methods=["GET"])
 @jwt_required()
 def api_check_token():
     user_id = get_jwt_identity()
     return jsonify({"valid": True, "user_id": int(user_id)}), 200
-
 
 @app.route("/api/logout", methods=["POST"])
 @jwt_required()
@@ -990,16 +891,13 @@ def api_logout():
     BLOCKLIST.add(jti)
     return jsonify({"message": "Logged out"}), 200
 
+# ============================================================
+# MOBILE API — FCM TOKEN
+# ============================================================
 
-# =================================================
-# MOBILE API — SAVE FCM TOKEN
-# =================================================
 @app.route("/api/fcm-token", methods=["POST"])
 @jwt_required()
 def api_fcm_token():
-    """
-    Body JSON: { "token": "<device_fcm_token>" }
-    """
     user_id = int(get_jwt_identity())
     data = request.get_json() or {}
     token = (data.get("token") or "").strip()
@@ -1015,34 +913,23 @@ def api_fcm_token():
     db.session.commit()
     return jsonify({"message": "FCM token saved"}), 200
 
-
-# =================================================
+# ============================================================
 # MOBILE API — SUBMIT REPORT
-# =================================================
+# ============================================================
+
 @app.route("/api/report", methods=["POST"])
 @jwt_required()
 def submit_report():
-    """
-    Accepts:
-    - multipart/form-data (with optional photo)
-    - application/json (offline sync)
-
-    Fields:
-      reporter, province, municipality, barangay, severity,
-      infestation_type, lat, lng, description, photo / photo_url
-    """
     user_id = int(get_jwt_identity())
 
     if request.content_type and request.content_type.startswith("multipart/form-data"):
         form = request.form
-
         reporter = sanitize(form.get("reporter"))
         province = sanitize(form.get("province"))
         municipality = sanitize(form.get("municipality"))
         barangay = sanitize(form.get("barangay"))
         severity = sanitize(form.get("severity")) or "Low"
         infestation_type = sanitize(form.get("infestation_type")) or "Other"
-        description = sanitize(form.get("description"))
 
         try:
             lat = float(form.get("lat")) if form.get("lat") else None
@@ -1058,7 +945,6 @@ def submit_report():
                 fname = secure_filename(f"{uuid.uuid4().hex}_{f.filename}")
                 f.save(os.path.join(app.config["UPLOAD_FOLDER"], fname))
                 photo = f"/static/uploads/{fname}"
-
     else:
         data = request.get_json() or {}
 
@@ -1068,7 +954,6 @@ def submit_report():
         barangay = sanitize(data.get("barangay"))
         severity = sanitize(data.get("severity")) or "Low"
         infestation_type = sanitize(data.get("infestation_type")) or "Other"
-        description = sanitize(data.get("description"))
 
         lat = data.get("lat")
         lng = data.get("lng")
@@ -1091,14 +976,12 @@ def submit_report():
         lat=lat,
         lng=lng,
         photo=photo,
-        description=description,
         user_id=user_id,
     )
 
     db.session.add(report)
     db.session.commit()
 
-    # create notifications for nearby farmers (High / Critical only)
     create_location_notifications(report)
 
     return jsonify({
@@ -1108,15 +991,14 @@ def submit_report():
         "infestation_type": report.infestation_type,
     }), 201
 
+# ============================================================
+# MOBILE API — NOTIFICATIONS
+# ============================================================
 
-# =================================================
-# MOBILE API — NOTIFICATIONS INBOX
-# =================================================
 @app.route("/api/notifications", methods=["GET"])
 @jwt_required()
 def api_notifications():
     user_id = int(get_jwt_identity())
-
     notifs = Notification.query.filter_by(user_id=user_id).order_by(
         Notification.created_at.desc()
     ).all()
@@ -1137,13 +1019,9 @@ def api_notifications():
         for n in notifs
     ])
 
-
 @app.route("/api/notifications/read", methods=["POST"])
 @jwt_required()
 def api_notifications_read():
-    """
-    Body JSON: { "ids": [1,2,3] }  # optional; if omitted -> mark all as read
-    """
     user_id = int(get_jwt_identity())
     data = request.get_json() or {}
     ids = data.get("ids")
@@ -1158,10 +1036,10 @@ def api_notifications_read():
     db.session.commit()
     return jsonify({"message": "Notifications marked as read"}), 200
 
+# ============================================================
+# DASHBOARD API — REPORTS JSON
+# ============================================================
 
-# =================================================
-# DASHBOARD API — FILTERED REPORTS (JSON)
-# =================================================
 @app.route("/api/reports")
 def get_reports():
     q = apply_report_filters(Report.query, request.args)
@@ -1182,15 +1060,14 @@ def get_reports():
             "photo": r.photo,
             "lat": r.lat,
             "lng": r.lng,
-            "description": r.description,
         }
         for r in reports
     ])
 
+# ============================================================
+# DASHBOARD EXPORT — CSV & EXCEL
+# ============================================================
 
-# =================================================
-# DASHBOARD EXPORT — CSV
-# =================================================
 @app.route("/api/reports/export/csv")
 @login_required
 def export_reports_csv():
@@ -1208,8 +1085,7 @@ def export_reports_csv():
         "Province", "Municipality", "Barangay",
         "Severity", "Infestation Type",
         "Status", "Action Status",
-        "Latitude", "Longitude", "Photo URL",
-        "Description",
+        "Latitude", "Longitude", "Photo URL"
     ]
     writer.writerow(header)
 
@@ -1228,7 +1104,6 @@ def export_reports_csv():
             r.lat or "",
             r.lng or "",
             r.photo or "",
-            (r.description or "").replace("\n", " "),
         ])
 
     resp = make_response(output.getvalue())
@@ -1236,10 +1111,11 @@ def export_reports_csv():
     resp.headers["Content-Disposition"] = "attachment; filename=reports.csv"
     return resp
 
+try:
+    from openpyxl import Workbook
+except ImportError:
+    Workbook = None
 
-# =================================================
-# DASHBOARD EXPORT — EXCEL
-# =================================================
 @app.route("/api/reports/export/excel")
 @login_required
 def export_reports_excel():
@@ -1263,8 +1139,7 @@ def export_reports_excel():
         "Province", "Municipality", "Barangay",
         "Severity", "Infestation Type",
         "Status", "Action Status",
-        "Latitude", "Longitude", "Photo URL",
-        "Description",
+        "Latitude", "Longitude", "Photo URL"
     ]
     ws.append(header)
 
@@ -1283,7 +1158,6 @@ def export_reports_excel():
             r.lat or "",
             r.lng or "",
             r.photo or "",
-            r.description or "",
         ])
 
     file_io = io.BytesIO()
@@ -1297,10 +1171,10 @@ def export_reports_excel():
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
+# ============================================================
+# DASHBOARD PRINT VIEW
+# ============================================================
 
-# =================================================
-# DASHBOARD PRINT VIEW — HTML
-# =================================================
 @app.route("/reports/print")
 @login_required
 def print_reports_view():
@@ -1312,60 +1186,10 @@ def print_reports_view():
 
     return render_template("reports_print.html", reports=reports)
 
+# ============================================================
+# RUN (local dev – Render uses gunicorn)
+# ============================================================
 
-# =================================================
-# ADMIN — POPULATE RANDOM SAMPLE REPORTS (optional)
-# =================================================
-@app.route("/admin/reports/populate", methods=["POST"])
-@login_required
-def populate_reports():
-    if not current_user.is_admin:
-        return redirect(url_for("no_access"))
-
-    severities = ["Low", "Moderate", "High", "Critical"]
-    infestations = [
-        "Golden Apple Snail (GAS)",
-        "Rice Black Bug (RBB)",
-        "Brown Plant Hopper (BPH)",
-        "Others",
-    ]
-
-    sample_provinces = ["Pangasinan", "Nueva Ecija", "Isabela"]
-    sample_muns = ["Binalonan", "Urdaneta", "Sta. Maria", "Aliaga"]
-    sample_brgy = ["Brgy 1", "Brgy 2", "Brgy 3", "Brgy 4"]
-
-    for _ in range(30):
-        prov = random.choice(sample_provinces)
-        mun = random.choice(sample_muns)
-        brgy = random.choice(sample_brgy)
-        sev = random.choice(severities)
-        infest = random.choice(infestations)
-
-        r = Report(
-            date=datetime.utcnow() - timedelta(days=random.randint(0, 14)),
-            reporter=f"Farmer {random.randint(1, 20)}",
-            province=prov,
-            municipality=mun,
-            barangay=brgy,
-            severity=sev,
-            status="Pending" if sev in ("High", "Critical") else "In Progress",
-            action_status="Not Resolved",
-            infestation_type=infest,
-            lat=16.0 + random.random(),
-            lng=120.0 + random.random(),
-            photo="",
-            description="Auto-generated demo report",
-            user_id=current_user.id,
-        )
-        db.session.add(r)
-
-    db.session.commit()
-    return jsonify({"message": "Sample reports populated"}), 201
-
-
-# =================================================
-# RUN
-# =================================================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
