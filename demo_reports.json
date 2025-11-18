@@ -182,12 +182,12 @@
     "barangay": "Purok Centro",
     "severity": "Low",
     "infestation_type": "Golden Apple Snail (GAS)",
-    "lat": 17.5220,
-    "lng": 120.3890,
+    "lat": 17.522,
+    "lng": 120.389,
     "description": "Low snail activity.",
     "gps_metadata": {
-      "lat": 17.5220,
-      "lng": 120.3890,
+      "lat": 17.522,
+      "lng": 120.389,
       "timestamp": "2025-01-03T09:20:00Z"
     }
   },

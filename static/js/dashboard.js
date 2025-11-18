@@ -7,7 +7,6 @@ let markersLayer = L.layerGroup();
 window.allReports = [];
 
 let severityChart, barangayChart, trendChart;
-
 let autoRefreshTimer = null;
 
 
@@ -15,7 +14,7 @@ let autoRefreshTimer = null;
 // INIT MAP
 // -----------------------------------------------
 function initMap() {
-    map = L.map("map").setView([10.7, 122.56], 10);
+    map = L.map("map").setView([17.3, 120.45], 9); // Center near Ilocos Sur
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 18,
@@ -26,37 +25,65 @@ function initMap() {
 }
 
 
-
 // -----------------------------------------------
-// LOAD FILTER DROPDOWNS
+// LOAD FILTER DROPDOWNS (PROVINCE / MUNICIPALITY / BARANGAY)
 // -----------------------------------------------
 async function loadFilterDropdowns() {
-    const barangaySelect = document.getElementById("barangayFilter");
+    const provSel = document.getElementById("provinceFilter");
+    const muniSel = document.getElementById("municipalityFilter");
+    const brgySel = document.getElementById("barangayFilter");
 
-    barangaySelect.innerHTML = `<option value="All">All</option>`;
+    provSel.innerHTML = `<option value="All">All</option>`;
+    muniSel.innerHTML = `<option value="All">All</option>`;
+    brgySel.innerHTML = `<option value="All">All</option>`;
 
     try {
-        const res = await fetch("/api/barangays");
+        const res = await fetch("/api/reports");
         const data = await res.json();
 
-        data.forEach((b) => {
+        const provinces = new Set();
+        const municipalities = new Set();
+        const barangays = new Set();
+
+        data.forEach(r => {
+            if (r.province) provinces.add(r.province);
+            if (r.municipality) municipalities.add(r.municipality);
+            if (r.barangay) barangays.add(r.barangay);
+        });
+
+        [...provinces].sort().forEach(p => {
+            const opt = document.createElement("option");
+            opt.value = p;
+            opt.textContent = p;
+            provSel.appendChild(opt);
+        });
+
+        [...municipalities].sort().forEach(m => {
+            const opt = document.createElement("option");
+            opt.value = m;
+            opt.textContent = m;
+            muniSel.appendChild(opt);
+        });
+
+        [...barangays].sort().forEach(b => {
             const opt = document.createElement("option");
             opt.value = b;
             opt.textContent = b;
-            barangaySelect.appendChild(opt);
+            brgySel.appendChild(opt);
         });
 
     } catch (err) {
-        console.error("Failed loading barangays:", err);
+        console.error("Failed loading dropdown values:", err);
     }
 }
-
 
 
 // -----------------------------------------------
 // FETCH FILTERED REPORTS
 // -----------------------------------------------
 async function fetchReports() {
+    const province = document.getElementById("provinceFilter").value;
+    const municipality = document.getElementById("municipalityFilter").value;
     const barangay = document.getElementById("barangayFilter").value;
     const severity = document.getElementById("severityFilter").value;
     const infestationType = document.getElementById("infestationFilter").value;
@@ -66,6 +93,8 @@ async function fetchReports() {
 
     const params = new URLSearchParams();
 
+    if (province !== "All") params.append("province", province);
+    if (municipality !== "All") params.append("municipality", municipality);
     if (barangay !== "All") params.append("barangay", barangay);
     if (severity !== "All") params.append("severity", severity);
     if (infestationType !== "All") params.append("infestation_type", infestationType);
@@ -82,7 +111,6 @@ async function fetchReports() {
 }
 
 
-
 // -----------------------------------------------
 // UPDATE EVERYTHING
 // -----------------------------------------------
@@ -96,7 +124,6 @@ async function updateReports() {
 }
 
 
-
 // -----------------------------------------------
 // HEATMAP
 // -----------------------------------------------
@@ -108,8 +135,6 @@ function updateHeatmap() {
         .map(r => [
             r.lat,
             r.lng,
-
-            // heat intensity based on severity
             r.severity === "Critical" ? 1.0 :
             r.severity === "High" ? 0.9 :
             r.severity === "Moderate" ? 0.6 :
@@ -122,7 +147,6 @@ function updateHeatmap() {
         maxZoom: 17,
     }).addTo(map);
 }
-
 
 
 // -----------------------------------------------
@@ -161,7 +185,6 @@ function updateMarkers() {
 }
 
 
-
 // -----------------------------------------------
 // KPIs
 // -----------------------------------------------
@@ -180,18 +203,11 @@ function updateKPIs() {
 }
 
 
-
 // -----------------------------------------------
 // CHARTS
 // -----------------------------------------------
 function updateCharts() {
-    const severityCount = {
-        Low: 0,
-        Moderate: 0,
-        High: 0,
-        Critical: 0,
-    };
-
+    const severityCount = { Low: 0, Moderate: 0, High: 0, Critical: 0 };
     const barangayCount = {};
     const weekly = {};
 
@@ -201,15 +217,14 @@ function updateCharts() {
 
         barangayCount[r.barangay] = (barangayCount[r.barangay] || 0) + 1;
 
-        const week = r.date.substring(0, 10);
-        weekly[week] = (weekly[week] || 0) + 1;
+        const day = r.date.substring(0, 10);
+        weekly[day] = (weekly[day] || 0) + 1;
     });
 
     drawSeverityChart(severityCount);
     drawBarangayChart(barangayCount);
     drawTrendChart(weekly);
 }
-
 
 
 function drawSeverityChart(data) {
@@ -219,13 +234,10 @@ function drawSeverityChart(data) {
         type: "pie",
         data: {
             labels: ["Low", "Moderate", "High", "Critical"],
-            datasets: [{
-                data: [data.Low, data.Moderate, data.High, data.Critical],
-            }]
+            datasets: [{ data: [data.Low, data.Moderate, data.High, data.Critical] }]
         }
     });
 }
-
 
 
 function drawBarangayChart(data) {
@@ -235,13 +247,10 @@ function drawBarangayChart(data) {
         type: "bar",
         data: {
             labels: Object.keys(data),
-            datasets: [{
-                data: Object.values(data),
-            }]
+            datasets: [{ data: Object.values(data) }]
         }
     });
 }
-
 
 
 function drawTrendChart(data) {
@@ -253,13 +262,10 @@ function drawTrendChart(data) {
         type: "line",
         data: {
             labels: labels,
-            datasets: [{
-                data: labels.map(d => data[d]),
-            }]
+            datasets: [{ data: labels.map(d => data[d]) }]
         }
     });
 }
-
 
 
 // -----------------------------------------------
@@ -271,12 +277,9 @@ function updateLastUpdated() {
 
 function startAutoRefresh(seconds) {
     if (autoRefreshTimer) clearInterval(autoRefreshTimer);
-
     if (seconds === "off") return;
-
     autoRefreshTimer = setInterval(updateReports, seconds * 1000);
 }
-
 
 
 // -----------------------------------------------
@@ -288,10 +291,8 @@ window.addEventListener("load", async () => {
     await updateReports();
 
     document.getElementById("filterBtn").onclick = updateReports;
-
     document.getElementById("refreshInterval").addEventListener("change", (e) => {
         startAutoRefresh(e.target.value);
     });
-
     document.getElementById("manualRefresh").onclick = updateReports;
 });

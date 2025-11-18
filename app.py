@@ -38,42 +38,6 @@ db = SQLAlchemy(app)
 
 
 # --------------------------------------------------------------------
-# AUTO-FIX USER TABLE (SQLAlchemy 2.x SAFE)
-# --------------------------------------------------------------------
-def add_missing_columns():
-    try:
-        result = db.session.execute(
-            text(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_name='users';"
-            )
-        ).fetchall()
-
-        columns = [r[0] for r in result]
-
-        required_columns = {
-            "password": "VARCHAR(120)",
-            "full_name": "VARCHAR(120)",
-            "email": "VARCHAR(150)",
-            "contact": "VARCHAR(100)",
-            "address": "VARCHAR(200)",
-            "is_admin": "BOOLEAN DEFAULT FALSE",
-        }
-
-        for col, dtype in required_columns.items():
-            if col not in columns:
-                print(f"⚠ Adding missing users column: {col}")
-                db.session.execute(
-                    text(f'ALTER TABLE "users" ADD COLUMN {col} {dtype};')
-                )
-                db.session.commit()
-                print(f"✔ Added: {col}")
-
-    except Exception as e:
-        print("❌ Column auto-fix failed:", e)
-
-
-# --------------------------------------------------------------------
 # MODELS
 # --------------------------------------------------------------------
 class User(db.Model):
@@ -106,77 +70,122 @@ class Report(db.Model):
 
 
 # --------------------------------------------------------------------
-# LOAD DEMO REPORTS FROM JSON
+# AUTO-FIX USER TABLE COLUMNS (SAFE FOR SQLALCHEMY 2.x)
 # --------------------------------------------------------------------
-DEMO_REPORTS = []
-demo_path = os.path.join(os.path.dirname(__file__), "demo_reports.json")
-
-if os.path.exists(demo_path):
+def add_missing_user_columns():
+    """
+    Adds missing columns to the 'users' table if it exists (Postgres).
+    If using SQLite locally, this may fail silently (caught by except).
+    """
     try:
-        with open(demo_path, "r") as f:
-            DEMO_REPORTS = json.load(f)
-        print(f"✔ Loaded {len(DEMO_REPORTS)} demo reports from demo_reports.json")
+        result = db.session.execute(
+            text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name='users';"
+            )
+        ).fetchall()
+
+        columns = [r[0] for r in result]
+
+        required_columns = {
+            "password": "VARCHAR(120)",
+            "full_name": "VARCHAR(120)",
+            "email": "VARCHAR(150)",
+            "contact": "VARCHAR(100)",
+            "address": "VARCHAR(200)",
+            "is_admin": "BOOLEAN DEFAULT FALSE",
+        }
+
+        for col, dtype in required_columns.items():
+            if col not in columns:
+                print(f"⚠ Adding missing users column: {col}")
+                db.session.execute(
+                    text(f'ALTER TABLE "users" ADD COLUMN {col} {dtype};')
+                )
+                db.session.commit()
+                print(f"✔ Added column: {col}")
+
+    except Exception as e:
+        print("❌ Column auto-fix failed (likely SQLite dev):", e)
+
+
+# --------------------------------------------------------------------
+# DEMO DATA SEEDING
+# --------------------------------------------------------------------
+def load_demo_reports():
+    """
+    Reads demo_reports.json from the SAME FOLDER as app.py.
+    """
+    try:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        json_path = os.path.join(base_dir, "demo_reports.json")
+
+        if not os.path.exists(json_path):
+            print("⚠ demo_reports.json not found, skipping seeding.")
+            return []
+
+        with open(json_path, "r") as f:
+            data = json.load(f)
+
+        print(f"✔ Loaded {len(data)} demo report(s) from demo_reports.json")
+        return data
+
     except Exception as e:
         print("❌ Failed to load demo_reports.json:", e)
-else:
-    print("ℹ demo_reports.json not found; skipping demo load.")
+        return []
 
 
 def seed_demo_reports():
     """
-    Seed the Report table with DEMO_REPORTS if table is empty.
-    Runs only once on a fresh DB.
+    Insert demo reports only if the Report table is empty.
     """
-    if not DEMO_REPORTS:
-        print("ℹ No demo reports to seed.")
-        return
+    try:
+        count = Report.query.count()
+        if count > 0:
+            print(f"✔ Reports already exist in DB (count={count}), skipping seed.")
+            return
 
-    existing_count = Report.query.count()
-    if existing_count > 0:
-        print(f"ℹ Reports table already has {existing_count} rows. Skipping seeding.")
-        return
+        demo_reports = load_demo_reports()
+        if not demo_reports:
+            return
 
-    print("⚠ Seeding demo reports into database...")
-
-    for r in DEMO_REPORTS:
-        # Safe timestamp parsing
-        ts = None
-        gps_meta = r.get("gps_metadata") or {}
-        ts_raw = gps_meta.get("timestamp")
-        if ts_raw:
+        for r in demo_reports:
+            # Parse timestamp from gps_metadata
+            ts_str = r.get("gps_metadata", {}).get("timestamp")
             try:
-                ts = datetime.strptime(ts_raw, "%Y-%m-%dT%H:%M:%SZ")
+                date_val = datetime.strptime(ts_str, "%Y-%m-%dT%H:%M:%SZ") if ts_str else datetime.utcnow()
             except Exception:
-                ts = datetime.utcnow()
-        else:
-            ts = datetime.utcnow()
+                date_val = datetime.utcnow()
 
-        report = Report(
-            reporter=r.get("reporter"),
-            province=r.get("province"),
-            municipality=r.get("municipality"),
-            barangay=r.get("barangay"),
-            severity=r.get("severity"),
-            infestation_type=r.get("infestation_type"),
-            lat=r.get("lat"),
-            lng=r.get("lng"),
-            description=r.get("description"),
-            photo=None,
-            date=ts,
-        )
-        db.session.add(report)
+            report = Report(
+                reporter=r.get("reporter"),
+                province=r.get("province"),
+                municipality=r.get("municipality"),
+                barangay=r.get("barangay"),
+                severity=r.get("severity"),
+                infestation_type=r.get("infestation_type"),
+                lat=r.get("lat"),
+                lng=r.get("lng"),
+                description=r.get("description"),
+                photo=None,
+                date=date_val,
+            )
+            db.session.add(report)
 
-    db.session.commit()
-    print("✔ Demo reports seeded successfully.")
+        db.session.commit()
+        print("✔ Demo reports seeded into Report table.")
+
+    except Exception as e:
+        print("❌ Failed to seed demo reports:", e)
 
 
 # --------------------------------------------------------------------
-# INITIALIZE DB
+# INITIALIZE DB + SEED
 # --------------------------------------------------------------------
 with app.app_context():
     db.create_all()
-    add_missing_columns()
-    seed_demo_reports()  # <<< THIS MAKES YOUR DASHBOARD SHOW DEMO DATA
+    add_missing_user_columns()
+    seed_demo_reports()
 
 
 # --------------------------------------------------------------------
@@ -238,7 +247,6 @@ def login_submit():
         data = request.get_json(silent=True)
         if not data:
             return jsonify({"error": "Invalid request"}), 400
-
         username = data.get("username")
         password = data.get("password")
 
@@ -305,7 +313,7 @@ def print_reports():
 
 
 # --------------------------------------------------------------------
-# REPORTS API
+# REPORTS API (NOW SUPPORTS PROVINCE + MUNICIPALITY FILTERS)
 # --------------------------------------------------------------------
 @app.route("/api/barangays", methods=["GET"])
 def get_barangays():
@@ -317,12 +325,18 @@ def get_barangays():
 def get_reports():
     query = Report.query
 
+    province = request.args.get("province")
+    municipality = request.args.get("municipality")
     barangay = request.args.get("barangay")
     severity = request.args.get("severity")
     infestation_type = request.args.get("infestation_type")
     start_date = request.args.get("start_date")
     end_date = request.args.get("end_date")
 
+    if province:
+        query = query.filter_by(province=province)
+    if municipality:
+        query = query.filter_by(municipality=municipality)
     if barangay:
         query = query.filter_by(barangay=barangay)
     if severity:
@@ -330,7 +344,6 @@ def get_reports():
     if infestation_type:
         query = query.filter_by(infestation_type=infestation_type)
 
-    # date filtering
     try:
         if start_date:
             query = query.filter(
