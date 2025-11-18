@@ -1283,7 +1283,7 @@ def populate_reports():
         infest = random.choice(infestations)
 
         r = Report(
-            date=datetime.utcnow() - timedelta(days[random.randint(0, 14))),
+            date=datetime.utcnow() - timedelta(days=random.randint(0, 14)),
             reporter=f"Farmer {random.randint(1, 20)}",
             province=prov,
             municipality=mun,
@@ -1301,6 +1301,7 @@ def populate_reports():
 
     db.session.commit()
     return jsonify({"message": "Sample reports populated"}), 201
+
 
 
 # =================================================
