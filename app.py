@@ -40,7 +40,12 @@ db = SQLAlchemy(app)
 # AUTO-FIX USERS TABLE
 # =====================================================================
 def add_missing_columns():
+    """
+    Ensure 'users' table has all columns used by the User model.
+    Safe to run each startup (idempotent).
+    """
     try:
+        # On SQLite, information_schema doesn't exist; skip dynamic ALTERs
         if app.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite"):
             return
 
@@ -59,12 +64,16 @@ def add_missing_columns():
             "email": "VARCHAR(150)",
             "contact": "VARCHAR(100)",
             "address": "VARCHAR(200)",
+            "province": "VARCHAR(120)",
+            "municipality": "VARCHAR(120)",
+            "barangay": "VARCHAR(120)",
+            "phone": "VARCHAR(100)",
             "is_admin": "BOOLEAN DEFAULT FALSE",
         }
 
         for col, dtype in required_columns.items():
             if col not in columns:
-                print(f"Adding missing column: {col}")
+                print(f"Adding missing users column: {col}")
                 db.session.execute(
                     text(f'ALTER TABLE "users" ADD COLUMN {col} {dtype};')
                 )
@@ -85,8 +94,13 @@ class User(db.Model):
 
     full_name = db.Column(db.String(120))
     email = db.Column(db.String(150))
-    contact = db.Column(db.String(100))
+    contact = db.Column(db.String(100))       # legacy / generic contact
+    phone = db.Column(db.String(100))         # mobile "phone" field
+
     address = db.Column(db.String(200))
+    province = db.Column(db.String(120))
+    municipality = db.Column(db.String(120))
+    barangay = db.Column(db.String(120))
 
     is_admin = db.Column(db.Boolean, default=False)
 
@@ -97,7 +111,7 @@ class Report(db.Model):
     province = db.Column(db.String(120))
     municipality = db.Column(db.String(120))
     barangay = db.Column(db.String(120))
-    severity = db.Column(db.String(50), default="Pending")    # DEFAULT HERE
+    severity = db.Column(db.String(50), default="Pending")
     infestation_type = db.Column(db.String(120))
     lat = db.Column(db.Float)
     lng = db.Column(db.Float)
@@ -113,6 +127,9 @@ DEMO_PATH = os.path.join(os.path.dirname(__file__), "demo_reports.json")
 
 
 def seed_demo_reports():
+    """
+    Seed report table from demo_reports.json if empty.
+    """
     try:
         if Report.query.count() > 0:
             print("Reports already exist.")
@@ -140,7 +157,7 @@ def seed_demo_reports():
                 province=r.get("province"),
                 municipality=r.get("municipality"),
                 barangay=r.get("barangay"),
-                severity="Pending",      # FORCE DEMO TO PENDING
+                severity="Pending",  # force demo to Pending
                 infestation_type=r.get("infestation_type"),
                 lat=r.get("lat"),
                 lng=r.get("lng"),
@@ -165,11 +182,14 @@ with app.app_context():
     add_missing_columns()
     seed_demo_reports()
 
-    # B — Convert ALL existing reports to Pending
-    print("Converting ALL existing reports to severity='Pending' ...")
-    db.session.execute(text("UPDATE report SET severity='Pending';"))
-    db.session.commit()
-    print("Done!")
+    # Convert ALL existing reports to Pending (once)
+    try:
+        print("Converting ALL existing reports to severity='Pending' ...")
+        db.session.execute(text("UPDATE report SET severity='Pending';"))
+        db.session.commit()
+        print("Done!")
+    except Exception as e:
+        print("Error forcing report severity to Pending:", e)
 
 
 # =====================================================================
@@ -177,16 +197,34 @@ with app.app_context():
 # =====================================================================
 @app.route("/signup", methods=["POST"])
 def signup():
+    """
+    Handles signup from:
+      - Web JSON: { username, password, fullName, email, contact, address, adminCode }
+      - Mobile JSON: { username, password, full_name, email, phone, province, municipality, barangay }
+    """
     data = request.get_json(silent=True)
     if not data:
         return jsonify({"error": "Invalid request"}), 400
 
     username = data.get("username")
     password = data.get("password")
-    fullName = data.get("fullName")
+
+    # Names (support camelCase + snake_case)
+    full_name = data.get("full_name") or data.get("fullName")
+
+    # Contact / phone
+    phone = data.get("phone") or data.get("contact")
+    contact = phone  # keep them in sync
+
     email = data.get("email")
-    contact = data.get("contact")
+
+    # Address / regional fields
     address = data.get("address")
+    province = data.get("province")
+    municipality = data.get("municipality")
+    barangay = data.get("barangay")
+
+    # Admin (mainly web)
     adminCode = data.get("adminCode")
 
     if not username or not password:
@@ -200,10 +238,14 @@ def signup():
     user = User(
         username=username,
         password=password,
-        full_name=fullName,
+        full_name=full_name,
         email=email,
         contact=contact,
+        phone=phone,
         address=address,
+        province=province,
+        municipality=municipality,
+        barangay=barangay,
         is_admin=is_admin,
     )
 
@@ -223,10 +265,11 @@ def api_register():
 # =====================================================================
 @app.route("/login", methods=["POST"])
 def login_submit():
+    # HTML form login
     if request.form:
         username = request.form.get("username")
         password = request.form.get("password")
-    else:
+    else:  # JSON login (mobile / SPA)
         data = request.get_json(silent=True)
         if not data:
             return jsonify({"error": "Invalid request"}), 400
@@ -329,14 +372,19 @@ def get_reports():
 
     if start_date:
         try:
-            query = query.filter(Report.date >= datetime.strptime(start_date, "%Y-%m-%d"))
-        except:
+            query = query.filter(
+                Report.date >= datetime.strptime(start_date, "%Y-%m-%d")
+            )
+        except Exception:
             pass
 
     if end_date:
         try:
-            query = query.filter(Report.date <= datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1))
-        except:
+            query = query.filter(
+                Report.date
+                <= datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+            )
+        except Exception:
             pass
 
     reports = query.order_by(Report.date.desc()).all()
