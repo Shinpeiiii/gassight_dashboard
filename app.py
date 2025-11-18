@@ -1,5 +1,9 @@
 import os
 import json
+import secrets
+import smtplib
+import bcrypt
+from email.mime.text import MIMEText
 from datetime import datetime, timedelta
 
 from flask import (
@@ -12,7 +16,7 @@ from flask import (
 )
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
-from sqlalchemy import text
+from sqlalchemy import text, or_
 
 app = Flask(__name__)
 CORS(app)
@@ -35,17 +39,20 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
+# Email config
+EMAIL_USER = os.environ.get("EMAIL_USER", "shinpei.2703@gmail.com")
+EMAIL_PASS = os.environ.get("EMAIL_PASS")
+
 
 # =====================================================================
-# AUTO-FIX USERS TABLE
+# AUTO-FIX USERS TABLE (Postgres)
 # =====================================================================
 def add_missing_columns():
     """
     Ensure 'users' table has all columns used by the User model.
-    Safe to run each startup (idempotent).
+    Only runs on Postgres; SQLite is skipped.
     """
     try:
-        # On SQLite, information_schema doesn't exist; skip dynamic ALTERs
         if app.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite"):
             return
 
@@ -63,12 +70,14 @@ def add_missing_columns():
             "full_name": "VARCHAR(120)",
             "email": "VARCHAR(150)",
             "contact": "VARCHAR(100)",
+            "phone": "VARCHAR(100)",
             "address": "VARCHAR(200)",
             "province": "VARCHAR(120)",
             "municipality": "VARCHAR(120)",
             "barangay": "VARCHAR(120)",
-            "phone": "VARCHAR(100)",
             "is_admin": "BOOLEAN DEFAULT FALSE",
+            "email_verified": "BOOLEAN DEFAULT FALSE",
+            "verification_token": "VARCHAR(200)",
         }
 
         for col, dtype in required_columns.items():
@@ -90,12 +99,12 @@ class User(db.Model):
     __tablename__ = "users"
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(120), unique=True)
-    password = db.Column(db.String(120))
+    password = db.Column(db.String(200))  # may contain bcrypt hash
 
     full_name = db.Column(db.String(120))
     email = db.Column(db.String(150))
-    contact = db.Column(db.String(100))       # legacy / generic contact
-    phone = db.Column(db.String(100))         # mobile "phone" field
+    contact = db.Column(db.String(100))  # generic / legacy
+    phone = db.Column(db.String(100))    # mobile "phone"
 
     address = db.Column(db.String(200))
     province = db.Column(db.String(120))
@@ -103,6 +112,9 @@ class User(db.Model):
     barangay = db.Column(db.String(120))
 
     is_admin = db.Column(db.Boolean, default=False)
+
+    email_verified = db.Column(db.Boolean, default=False)
+    verification_token = db.Column(db.String(200))
 
 
 class Report(db.Model):
@@ -118,6 +130,52 @@ class Report(db.Model):
     description = db.Column(db.Text)
     photo = db.Column(db.String(250))
     date = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+# =====================================================================
+# EMAIL SENDING (GMAIL SMTP)
+# =====================================================================
+def send_verification_email(to_email: str, verify_url: str):
+    """
+    Sends an email with the verification link.
+    Uses Gmail SMTP with EMAIL_USER and EMAIL_PASS env vars.
+    """
+    if not to_email:
+        print("No email provided, skipping verification email.")
+        return
+
+    subject = "Verify your GASsight account"
+    body = f"""Hello,
+
+Thank you for registering to GASsight.
+
+Please click the link below to verify your email address:
+
+{verify_url}
+
+If you did not create this account, you can ignore this email.
+
+GASsight System
+"""
+
+    msg = MIMEText(body)
+    msg["Subject"] = subject
+    msg["From"] = EMAIL_USER
+    msg["To"] = to_email
+
+    if not EMAIL_USER or not EMAIL_PASS:
+        print("EMAIL_USER or EMAIL_PASS not set; cannot send real email.")
+        print("Verification link (debug):", verify_url)
+        return
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+            smtp.login(EMAIL_USER, EMAIL_PASS)
+            smtp.send_message(msg)
+        print(f"Verification email sent to {to_email}")
+    except Exception as e:
+        print("Failed to send verification email:", e)
+        print("Verification link (debug):", verify_url)
 
 
 # =====================================================================
@@ -157,7 +215,7 @@ def seed_demo_reports():
                 province=r.get("province"),
                 municipality=r.get("municipality"),
                 barangay=r.get("barangay"),
-                severity="Pending",  # force demo to Pending
+                severity="Pending",
                 infestation_type=r.get("infestation_type"),
                 lat=r.get("lat"),
                 lng=r.get("lng"),
@@ -182,7 +240,7 @@ with app.app_context():
     add_missing_columns()
     seed_demo_reports()
 
-    # Convert ALL existing reports to Pending (once)
+    # Force all existing reports to Pending (legacy)
     try:
         print("Converting ALL existing reports to severity='Pending' ...")
         db.session.execute(text("UPDATE report SET severity='Pending';"))
@@ -190,6 +248,22 @@ with app.app_context():
         print("Done!")
     except Exception as e:
         print("Error forcing report severity to Pending:", e)
+
+    # Mark old users (without verification token) as verified to avoid lockout
+    try:
+        legacy_users = User.query.filter(
+            or_(User.email_verified.is_(None), User.email_verified == False)
+        ).all()
+        changed = 0
+        for u in legacy_users:
+            if not u.verification_token:
+                u.email_verified = True
+                changed += 1
+        if changed:
+            db.session.commit()
+            print(f"Marked {changed} legacy user(s) as email_verified=True.")
+    except Exception as e:
+        print("Error upgrading legacy users:", e)
 
 
 # =====================================================================
@@ -201,6 +275,7 @@ def signup():
     Handles signup from:
       - Web JSON: { username, password, fullName, email, contact, address, adminCode }
       - Mobile JSON: { username, password, full_name, email, phone, province, municipality, barangay }
+    Creates user, hashes password, generates verification token, sends email.
     """
     data = request.get_json(silent=True)
     if not data:
@@ -230,14 +305,23 @@ def signup():
     if not username or not password:
         return jsonify({"error": "Missing username/password"}), 400
 
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+
     if User.query.filter_by(username=username).first():
         return jsonify({"error": "Username exists"}), 400
 
+    # Hash password with bcrypt
+    hashed_pw = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
     is_admin = adminCode == os.environ.get("ADMIN_CODE", "12345")
+
+    # Generate verification token
+    token = secrets.token_urlsafe(32)
 
     user = User(
         username=username,
-        password=password,
+        password=hashed_pw,
         full_name=full_name,
         email=email,
         contact=contact,
@@ -247,12 +331,21 @@ def signup():
         municipality=municipality,
         barangay=barangay,
         is_admin=is_admin,
+        email_verified=False,
+        verification_token=token,
     )
 
     db.session.add(user)
     db.session.commit()
 
-    return jsonify({"message": "Signup successful"})
+    # Build verification URL based on current host
+    base_url = request.url_root.rstrip("/")
+    verify_url = f"{base_url}/verify/{token}"
+
+    # Send the email
+    send_verification_email(email, verify_url)
+
+    return jsonify({"message": "Signup successful. Please verify your email."})
 
 
 @app.route("/api/register", methods=["POST"])
@@ -261,27 +354,76 @@ def api_register():
 
 
 # =====================================================================
+# EMAIL VERIFICATION ROUTE
+# =====================================================================
+@app.route("/verify/<token>")
+def verify_email(token):
+    user = User.query.filter_by(verification_token=token).first()
+
+    if not user:
+        return "Invalid or expired verification link.", 400
+
+    user.email_verified = True
+    user.verification_token = None
+    db.session.commit()
+
+    # You can customize this HTML or redirect to /login
+    return """
+    <h3>Email verified successfully ✅</h3>
+    <p>You can now close this page and log in to GASsight.</p>
+    """
+
+
+# =====================================================================
 # LOGIN
 # =====================================================================
+def check_password(raw_password: str, stored_password: str) -> bool:
+    """
+    Support both legacy plain-text passwords and bcrypt-hashed passwords.
+    """
+    if not stored_password:
+        return False
+
+    # bcrypt hashes start with $2b$ / $2a$ / $2y$
+    if stored_password.startswith("$2b$") or stored_password.startswith("$2a$") or stored_password.startswith("$2y$"):
+        try:
+            return bcrypt.checkpw(
+                (raw_password or "").encode("utf-8"),
+                stored_password.encode("utf-8"),
+            )
+        except Exception:
+            return False
+    else:
+        # Legacy plain text comparison
+        return (raw_password or "") == stored_password
+
+
 @app.route("/login", methods=["POST"])
 def login_submit():
     # HTML form login
     if request.form:
         username = request.form.get("username")
         password = request.form.get("password")
-    else:  # JSON login (mobile / SPA)
+    else:
+        # JSON login (mobile / SPA)
         data = request.get_json(silent=True)
         if not data:
             return jsonify({"error": "Invalid request"}), 400
         username = data.get("username")
         password = data.get("password")
 
-    user = User.query.filter_by(username=username, password=password).first()
+    user = User.query.filter_by(username=username).first()
 
-    if not user:
+    if not user or not check_password(password, user.password):
         if request.form:
             return redirect("/login?error=1")
         return jsonify({"success": False, "error": "Invalid credentials"}), 401
+
+    # Enforce email verification
+    if not user.email_verified:
+        if request.form:
+            return redirect("/login?error=unverified")
+        return jsonify({"success": False, "error": "Email not verified"}), 403
 
     session["user"] = username
     session["is_admin"] = user.is_admin
