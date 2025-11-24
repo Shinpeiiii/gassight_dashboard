@@ -9,6 +9,7 @@ from flask import (
     session,
     render_template,
     redirect,
+    send_from_directory,
 )
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
@@ -459,6 +460,92 @@ def get_reports():
             for r in reports
         ]
     )
+
+
+# =====================================================================
+# SUBMIT REPORT (Mobile App) ✅ NEW ENDPOINT
+# =====================================================================
+@app.route("/api/report", methods=["POST"])
+def submit_report():
+    """
+    Accept report submissions from mobile app.
+    Supports both JSON and multipart/form-data (with photo).
+    """
+    try:
+        # Check if it's multipart (with photo) or JSON
+        if request.is_json:
+            data = request.get_json()
+            photo_file = None
+        else:
+            # Form data with optional photo
+            data = request.form.to_dict()
+            photo_file = request.files.get("photo")
+        
+        # Extract fields
+        reporter = data.get("reporter")
+        province = data.get("province")
+        municipality = data.get("municipality")
+        barangay = data.get("barangay")
+        infestation_type = data.get("infestation_type")
+        description = data.get("description")
+        lat = data.get("lat")
+        lng = data.get("lng")
+        
+        # Validate required fields
+        if not all([reporter, province, municipality, barangay, infestation_type]):
+            return jsonify({"error": "Missing required fields"}), 400
+        
+        # Handle photo upload (if present)
+        photo_path = None
+        if photo_file:
+            # Create uploads directory if it doesn't exist
+            upload_dir = os.path.join(os.path.dirname(__file__), "uploads")
+            os.makedirs(upload_dir, exist_ok=True)
+            
+            # Save with unique filename
+            filename = f"{datetime.utcnow().timestamp()}_{photo_file.filename}"
+            photo_path = os.path.join(upload_dir, filename)
+            photo_file.save(photo_path)
+            photo_path = f"/uploads/{filename}"  # Store relative path
+        
+        # Create new report
+        report = Report(
+            reporter=reporter,
+            province=province,
+            municipality=municipality,
+            barangay=barangay,
+            severity="Pending",
+            infestation_type=infestation_type,
+            lat=float(lat) if lat else None,
+            lng=float(lng) if lng else None,
+            description=description,
+            photo=photo_path,
+            date=datetime.utcnow()
+        )
+        
+        db.session.add(report)
+        db.session.commit()
+        
+        return jsonify({
+            "status": "success",
+            "message": "Report submitted successfully",
+            "id": report.id
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error submitting report: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# =====================================================================
+# SERVE UPLOADED PHOTOS ✅ NEW ENDPOINT
+# =====================================================================
+@app.route("/uploads/<filename>")
+def serve_upload(filename):
+    """Serve uploaded photo files"""
+    upload_dir = os.path.join(os.path.dirname(__file__), "uploads")
+    return send_from_directory(upload_dir, filename)
 
 
 # =====================================================================
