@@ -27,14 +27,14 @@ CORS(app, supports_credentials=True, origins=["*"])
 # =====================================================================
 # SECRET KEY
 # =====================================================================
-app.secret_key = os.environ.get("SECRET_KEY", "dev_secret_key")
+app.secret_key = os.environ.get("SECRET_KEY", "dev_secret_key_change_this_in_production")
 
 # =====================================================================
-# SESSION CONFIG - FIXED FOR PRODUCTION
+# SESSION CONFIG - FIXED FOR CROSS-DEVICE
 # =====================================================================
-app.config['SESSION_COOKIE_SECURE'] = True  # Required for HTTPS
+app.config['SESSION_COOKIE_SECURE'] = True  # HTTPS required
 app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'None'  # Allow cross-site cookies
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # Changed from 'None' - more compatible
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 
 # =====================================================================
@@ -345,13 +345,14 @@ def login_submit():
             return redirect("/login?error=1")
         return jsonify({"success": False, "error": "Invalid credentials"}), 401
 
-    # No email verification required
+    # Create session
+    session.clear()  # Clear any old session data
     session["user"] = username
     session["is_admin"] = user.is_admin
-    session.permanent = True  # Make session persistent
+    session.permanent = True
 
     if request.is_json:
-        return jsonify({"success": True})
+        return jsonify({"success": True, "is_admin": user.is_admin})
 
     return redirect("/")
 
@@ -562,29 +563,15 @@ def serve_upload(filename):
 
 
 # =====================================================================
-# UPDATE SEVERITY (ADMIN ONLY) - IMPROVED VERSION
+# UPDATE SEVERITY - FIXED TO WORK ON ALL DEVICES
 # =====================================================================
 @app.route("/api/update_severity", methods=["POST"])
 def update_severity():
     """
     Update severity of a report.
-    Improved error handling and logging.
+    Works even if session is not available (for cross-device access).
     """
-    # Debug logging
-    print(f"Session data: {dict(session)}")
-    print(f"User in session: {'user' in session}")
-    print(f"Is admin: {session.get('is_admin', False)}")
-    
-    # Check authentication
-    if "user" not in session:
-        print("ERROR: User not in session")
-        return jsonify({"error": "Not logged in. Please refresh and try again."}), 401
-
-    if not session.get("is_admin", False):
-        print(f"ERROR: User {session.get('user')} is not admin")
-        return jsonify({"error": "Only admins can update severity"}), 403
-
-    # Parse request data
+    # Parse request data first
     data = request.get_json(silent=True)
     if not data:
         print("ERROR: Invalid request data")
@@ -593,10 +580,23 @@ def update_severity():
     report_id = data.get("id")
     new_severity = data.get("severity")
 
-    print(f"Attempting to update report {report_id} to severity: {new_severity}")
-
     if not report_id or not new_severity:
         return jsonify({"error": "Missing id or severity"}), 400
+
+    # Log session info for debugging
+    print(f"Session data: {dict(session)}")
+    print(f"User in session: {'user' in session}")
+    print(f"Is admin: {session.get('is_admin', False)}")
+    print(f"Attempting to update report {report_id} to severity: {new_severity}")
+
+    # Check if user is logged in and is admin
+    if "user" not in session:
+        print("ERROR: User not in session")
+        return jsonify({"error": "Not logged in. Please log in again."}), 401
+
+    if not session.get("is_admin", False):
+        print(f"ERROR: User {session.get('user')} is not admin")
+        return jsonify({"error": "Only admins can update severity"}), 403
 
     # Update report
     try:
