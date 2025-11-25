@@ -18,12 +18,24 @@ from sqlalchemy import text
 import bcrypt
 
 app = Flask(__name__)
-CORS(app)
+
+# =====================================================================
+# CORS CONFIG - FIXED FOR SESSION SUPPORT
+# =====================================================================
+CORS(app, supports_credentials=True, origins=["*"])
 
 # =====================================================================
 # SECRET KEY
 # =====================================================================
 app.secret_key = os.environ.get("SECRET_KEY", "dev_secret_key")
+
+# =====================================================================
+# SESSION CONFIG - FIXED FOR PRODUCTION
+# =====================================================================
+app.config['SESSION_COOKIE_SECURE'] = True  # Required for HTTPS
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'None'  # Allow cross-site cookies
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 
 # =====================================================================
 # DATABASE CONFIG
@@ -336,6 +348,7 @@ def login_submit():
     # No email verification required
     session["user"] = username
     session["is_admin"] = user.is_admin
+    session.permanent = True  # Make session persistent
 
     if request.is_json:
         return jsonify({"success": True})
@@ -463,7 +476,7 @@ def get_reports():
 
 
 # =====================================================================
-# SUBMIT REPORT (Mobile App) ✅ NEW ENDPOINT
+# SUBMIT REPORT (Mobile App)
 # =====================================================================
 @app.route("/api/report", methods=["POST"])
 def submit_report():
@@ -539,7 +552,7 @@ def submit_report():
 
 
 # =====================================================================
-# SERVE UPLOADED PHOTOS ✅ NEW ENDPOINT
+# SERVE UPLOADED PHOTOS
 # =====================================================================
 @app.route("/uploads/<filename>")
 def serve_upload(filename):
@@ -549,34 +562,64 @@ def serve_upload(filename):
 
 
 # =====================================================================
-# UPDATE SEVERITY (ADMIN ONLY)
+# UPDATE SEVERITY (ADMIN ONLY) - IMPROVED VERSION
 # =====================================================================
 @app.route("/api/update_severity", methods=["POST"])
 def update_severity():
+    """
+    Update severity of a report.
+    Improved error handling and logging.
+    """
+    # Debug logging
+    print(f"Session data: {dict(session)}")
+    print(f"User in session: {'user' in session}")
+    print(f"Is admin: {session.get('is_admin', False)}")
+    
+    # Check authentication
     if "user" not in session:
-        return jsonify({"error": "Not logged in"}), 401
+        print("ERROR: User not in session")
+        return jsonify({"error": "Not logged in. Please refresh and try again."}), 401
 
     if not session.get("is_admin", False):
+        print(f"ERROR: User {session.get('user')} is not admin")
         return jsonify({"error": "Only admins can update severity"}), 403
 
+    # Parse request data
     data = request.get_json(silent=True)
     if not data:
+        print("ERROR: Invalid request data")
         return jsonify({"error": "Invalid request"}), 400
 
     report_id = data.get("id")
     new_severity = data.get("severity")
 
+    print(f"Attempting to update report {report_id} to severity: {new_severity}")
+
     if not report_id or not new_severity:
         return jsonify({"error": "Missing id or severity"}), 400
 
-    report = Report.query.get(report_id)
-    if not report:
-        return jsonify({"error": "Not found"}), 404
+    # Update report
+    try:
+        report = Report.query.get(report_id)
+        if not report:
+            print(f"ERROR: Report {report_id} not found")
+            return jsonify({"error": "Report not found"}), 404
 
-    report.severity = new_severity
-    db.session.commit()
+        old_severity = report.severity
+        report.severity = new_severity
+        db.session.commit()
 
-    return jsonify({"status": "success"})
+        print(f"SUCCESS: Updated report {report_id} from {old_severity} to {new_severity}")
+        
+        return jsonify({
+            "status": "success",
+            "message": f"Severity updated to {new_severity}"
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"ERROR: Database error: {e}")
+        return jsonify({"error": f"Database error: {str(e)}"}), 500
 
 
 # =====================================================================
