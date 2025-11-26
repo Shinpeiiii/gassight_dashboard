@@ -1,6 +1,7 @@
 import os
 import json
 from datetime import datetime, timedelta
+from collections import Counter
 
 from flask import (
     Flask,
@@ -13,36 +14,24 @@ from flask import (
 )
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
-from sqlalchemy import text
+from sqlalchemy import text, func
 
 import bcrypt
 
 app = Flask(__name__)
-
-# =====================================================================
-# CORS CONFIG - FIXED FOR SESSION SUPPORT
-# =====================================================================
 CORS(app, supports_credentials=True, origins=["*"])
 
-# =====================================================================
-# SECRET KEY
-# =====================================================================
 app.secret_key = os.environ.get("SECRET_KEY", "dev_secret_key_change_this_in_production")
 
-# =====================================================================
-# SESSION CONFIG - FIXED FOR CROSS-DEVICE
-# =====================================================================
-app.config['SESSION_COOKIE_SECURE'] = True  # HTTPS required
+# SESSION CONFIG
+app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # Changed from 'None' - more compatible
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 
-# =====================================================================
 # DATABASE CONFIG
-# =====================================================================
 db_url = os.environ.get("DATABASE_URL", "sqlite:///data.db")
 
-# Render Postgres sometimes gives old-style postgres:// URLs
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
@@ -53,13 +42,9 @@ db = SQLAlchemy(app)
 
 
 # =====================================================================
-# AUTO-FIX USERS TABLE (for Postgres)
+# AUTO-FIX USERS TABLE
 # =====================================================================
 def add_missing_columns():
-    """
-    Ensure 'users' table has all columns used by the User model.
-    Only runs on Postgres; SQLite is skipped.
-    """
     try:
         if app.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite"):
             return
@@ -106,12 +91,12 @@ class User(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(120), unique=True)
-    password = db.Column(db.String(200))  # bcrypt hash
+    password = db.Column(db.String(200))
 
     full_name = db.Column(db.String(120))
     email = db.Column(db.String(150))
-    contact = db.Column(db.String(100))   # generic field
-    phone = db.Column(db.String(100))     # mobile number
+    contact = db.Column(db.String(100))
+    phone = db.Column(db.String(100))
 
     address = db.Column(db.String(200))
     province = db.Column(db.String(120))
@@ -143,9 +128,6 @@ DEMO_PATH = os.path.join(os.path.dirname(__file__), "demo_reports.json")
 
 
 def seed_demo_reports():
-    """
-    Seed report table from demo_reports.json if empty.
-    """
     try:
         if Report.query.count() > 0:
             print("Reports already exist.")
@@ -191,6 +173,70 @@ def seed_demo_reports():
 
 
 # =====================================================================
+# AUTO-DETERMINE SEVERITY BASED ON REPORT DENSITY
+# =====================================================================
+def auto_calculate_severity():
+    """
+    Automatically determine severity based on number of reports in each barangay.
+    Logic:
+    - 1-2 reports: Low
+    - 3-5 reports: Moderate
+    - 6-10 reports: High
+    - 11+ reports: Critical
+    """
+    try:
+        # Get report counts per barangay
+        report_counts = db.session.query(
+            Report.barangay,
+            Report.municipality,
+            Report.province,
+            func.count(Report.id).label('count')
+        ).filter(
+            Report.severity == 'Pending'
+        ).group_by(
+            Report.barangay,
+            Report.municipality,
+            Report.province
+        ).all()
+
+        for barangay, municipality, province, count in report_counts:
+            # Determine severity based on count
+            if count >= 11:
+                new_severity = "Critical"
+            elif count >= 6:
+                new_severity = "High"
+            elif count >= 3:
+                new_severity = "Moderate"
+            else:
+                new_severity = "Low"
+
+            # Update all pending reports in this barangay
+            db.session.execute(
+                text("""
+                    UPDATE report 
+                    SET severity = :severity 
+                    WHERE barangay = :barangay 
+                    AND municipality = :municipality 
+                    AND province = :province 
+                    AND severity = 'Pending'
+                """),
+                {
+                    "severity": new_severity,
+                    "barangay": barangay,
+                    "municipality": municipality,
+                    "province": province
+                }
+            )
+
+        db.session.commit()
+        print("Auto-calculated severities updated successfully")
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error auto-calculating severity: {e}")
+
+
+# =====================================================================
 # STARTUP DB INITIALIZATION
 # =====================================================================
 with app.app_context():
@@ -198,35 +244,18 @@ with app.app_context():
     add_missing_columns()
     seed_demo_reports()
 
-    # Optional: ensure all existing reports have severity="Pending"
-    try:
-        print("Converting ALL existing reports to severity='Pending' ...")
-        db.session.execute(text("UPDATE report SET severity='Pending';"))
-        db.session.commit()
-        print("Done!")
-    except Exception as e:
-        print("Error forcing report severity to Pending:", e)
-
 
 # =====================================================================
-# PASSWORD HELPERS (bcrypt)
+# PASSWORD HELPERS
 # =====================================================================
 def hash_password(raw_password: str) -> str:
-    """
-    Hash a plain-text password using bcrypt.
-    """
     return bcrypt.hashpw(raw_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def check_password(raw_password: str, stored_password: str) -> bool:
-    """
-    Check a password against the stored hash.
-    Also supports old plain-text passwords for legacy users.
-    """
     if not stored_password:
         return False
 
-    # bcrypt hashes start with $2b$ / $2a$ / $2y$
     if stored_password.startswith("$2b$") or stored_password.startswith("$2a$") or stored_password.startswith("$2y$"):
         try:
             return bcrypt.checkpw(
@@ -236,7 +265,6 @@ def check_password(raw_password: str, stored_password: str) -> bool:
         except Exception:
             return False
     else:
-        # Legacy plain-text fallback
         return (raw_password or "") == stored_password
 
 
@@ -245,22 +273,6 @@ def check_password(raw_password: str, stored_password: str) -> bool:
 # =====================================================================
 @app.route("/signup", methods=["POST"])
 def signup():
-    """
-    Simple signup, NO OTP, NO email verification.
-    Accepts both web + mobile JSON formats:
-      {
-        "username": "...",
-        "password": "...",
-        "full_name": "..." or "fullName": "...",
-        "email": "...",
-        "phone": "..." or "contact": "...",
-        "province": "...",
-        "municipality": "...",
-        "barangay": "...",
-        "address": "...",
-        "adminCode": "..."   # optional
-      }
-    """
     data = request.get_json(silent=True)
     if not data:
         return jsonify({"error": "Invalid request"}), 400
@@ -268,22 +280,16 @@ def signup():
     username = data.get("username")
     password = data.get("password")
 
-    # Names (support camelCase + snake_case)
     full_name = data.get("full_name") or data.get("fullName")
-
-    # Contact / phone
     phone = data.get("phone") or data.get("contact")
     contact = phone
-
     email = data.get("email")
 
-    # Address / regional fields
     address = data.get("address")
     province = data.get("province")
     municipality = data.get("municipality")
     barangay = data.get("barangay")
 
-    # Admin (mainly web)
     adminCode = data.get("adminCode")
 
     if not username or not password:
@@ -317,7 +323,6 @@ def signup():
 
 @app.route("/api/register", methods=["POST"])
 def api_register():
-    # Mobile app can use this; same behavior as /signup
     return signup()
 
 
@@ -326,12 +331,10 @@ def api_register():
 # =====================================================================
 @app.route("/login", methods=["POST"])
 def login_submit():
-    # HTML form login
     if request.form:
         username = request.form.get("username")
         password = request.form.get("password")
     else:
-        # JSON login (mobile / SPA)
         data = request.get_json(silent=True)
         if not data:
             return jsonify({"error": "Invalid request"}), 400
@@ -345,8 +348,7 @@ def login_submit():
             return redirect("/login?error=1")
         return jsonify({"success": False, "error": "Invalid credentials"}), 401
 
-    # Create session
-    session.clear()  # Clear any old session data
+    session.clear()
     session["user"] = username
     session["is_admin"] = user.is_admin
     session.permanent = True
@@ -368,6 +370,35 @@ def login_page():
 def logout():
     session.clear()
     return redirect("/login")
+
+
+# =====================================================================
+# USER PROFILE API
+# =====================================================================
+@app.route("/api/profile", methods=["GET"])
+def get_profile():
+    """Get current user's profile information"""
+    if "user" not in session:
+        return jsonify({"error": "Not logged in"}), 401
+
+    username = session["user"]
+    user = User.query.filter_by(username=username).first()
+
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    return jsonify({
+        "username": user.username,
+        "full_name": user.full_name,
+        "email": user.email,
+        "phone": user.phone,
+        "contact": user.contact,
+        "address": user.address,
+        "province": user.province,
+        "municipality": user.municipality,
+        "barangay": user.barangay,
+        "is_admin": user.is_admin
+    })
 
 
 # =====================================================================
@@ -404,6 +435,54 @@ def print_reports():
 
 
 # =====================================================================
+# DATABASE EXPORT (FOR SHAHEEN)
+# =====================================================================
+@app.route("/api/export/database", methods=["GET"])
+def export_database():
+    """Export all database data as JSON"""
+    if "user" not in session:
+        return jsonify({"error": "Not logged in"}), 401
+
+    if not session.get("is_admin", False):
+        return jsonify({"error": "Admin only"}), 403
+
+    try:
+        users = User.query.all()
+        reports = Report.query.all()
+
+        return jsonify({
+            "users": [{
+                "id": u.id,
+                "username": u.username,
+                "full_name": u.full_name,
+                "email": u.email,
+                "phone": u.phone,
+                "province": u.province,
+                "municipality": u.municipality,
+                "barangay": u.barangay,
+                "is_admin": u.is_admin
+            } for u in users],
+            "reports": [{
+                "id": r.id,
+                "reporter": r.reporter,
+                "province": r.province,
+                "municipality": r.municipality,
+                "barangay": r.barangay,
+                "severity": r.severity,
+                "infestation_type": r.infestation_type,
+                "lat": r.lat,
+                "lng": r.lng,
+                "description": r.description,
+                "photo": r.photo,
+                "date": r.date.strftime("%Y-%m-%d %H:%M:%S") if r.date else None
+            } for r in reports]
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# =====================================================================
 # REPORTS API
 # =====================================================================
 @app.route("/api/barangays", methods=["GET"])
@@ -435,7 +514,6 @@ def get_reports():
     if infestation_type:
         query = query.filter_by(infestation_type=infestation_type)
 
-    # Date filtering
     if start_date:
         try:
             query = query.filter(
@@ -481,21 +559,14 @@ def get_reports():
 # =====================================================================
 @app.route("/api/report", methods=["POST"])
 def submit_report():
-    """
-    Accept report submissions from mobile app.
-    Supports both JSON and multipart/form-data (with photo).
-    """
     try:
-        # Check if it's multipart (with photo) or JSON
         if request.is_json:
             data = request.get_json()
             photo_file = None
         else:
-            # Form data with optional photo
             data = request.form.to_dict()
             photo_file = request.files.get("photo")
         
-        # Extract fields
         reporter = data.get("reporter")
         province = data.get("province")
         municipality = data.get("municipality")
@@ -505,24 +576,19 @@ def submit_report():
         lat = data.get("lat")
         lng = data.get("lng")
         
-        # Validate required fields
         if not all([reporter, province, municipality, barangay, infestation_type]):
             return jsonify({"error": "Missing required fields"}), 400
         
-        # Handle photo upload (if present)
         photo_path = None
         if photo_file:
-            # Create uploads directory if it doesn't exist
             upload_dir = os.path.join(os.path.dirname(__file__), "uploads")
             os.makedirs(upload_dir, exist_ok=True)
             
-            # Save with unique filename
             filename = f"{datetime.utcnow().timestamp()}_{photo_file.filename}"
             photo_path = os.path.join(upload_dir, filename)
             photo_file.save(photo_path)
-            photo_path = f"/uploads/{filename}"  # Store relative path
+            photo_path = f"/uploads/{filename}"
         
-        # Create new report
         report = Report(
             reporter=reporter,
             province=province,
@@ -539,6 +605,9 @@ def submit_report():
         
         db.session.add(report)
         db.session.commit()
+
+        # Auto-calculate severity after new report
+        auto_calculate_severity()
         
         return jsonify({
             "status": "success",
@@ -553,28 +622,55 @@ def submit_report():
 
 
 # =====================================================================
+# DELETE REPORT (ADMIN ONLY)
+# =====================================================================
+@app.route("/api/report/<int:report_id>", methods=["DELETE"])
+def delete_report(report_id):
+    """Delete a report (admin only)"""
+    try:
+        report = Report.query.get(report_id)
+        if not report:
+            return jsonify({"error": "Report not found"}), 404
+
+        # Delete associated photo if exists
+        if report.photo and report.photo.startswith("/uploads/"):
+            try:
+                photo_path = os.path.join(os.path.dirname(__file__), report.photo.lstrip("/"))
+                if os.path.exists(photo_path):
+                    os.remove(photo_path)
+            except Exception as e:
+                print(f"Failed to delete photo: {e}")
+
+        db.session.delete(report)
+        db.session.commit()
+
+        return jsonify({
+            "status": "success",
+            "message": "Report deleted successfully"
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error deleting report: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# =====================================================================
 # SERVE UPLOADED PHOTOS
 # =====================================================================
 @app.route("/uploads/<filename>")
 def serve_upload(filename):
-    """Serve uploaded photo files"""
     upload_dir = os.path.join(os.path.dirname(__file__), "uploads")
     return send_from_directory(upload_dir, filename)
 
 
 # =====================================================================
-# UPDATE SEVERITY - FIXED TO WORK ON ALL DEVICES
+# UPDATE SEVERITY
 # =====================================================================
 @app.route("/api/update_severity", methods=["POST"])
 def update_severity():
-    """
-    Update severity of a report.
-    Works even if session is not available (for cross-device access).
-    """
-    # Parse request data first
     data = request.get_json(silent=True)
     if not data:
-        print("ERROR: Invalid request data")
         return jsonify({"error": "Invalid request"}), 400
 
     report_id = data.get("id")
@@ -583,33 +679,13 @@ def update_severity():
     if not report_id or not new_severity:
         return jsonify({"error": "Missing id or severity"}), 400
 
-    # Log session info for debugging
-    print(f"Session data: {dict(session)}")
-    print(f"User in session: {'user' in session}")
-    print(f"Is admin: {session.get('is_admin', False)}")
-    print(f"Attempting to update report {report_id} to severity: {new_severity}")
-
-    # Check if user is logged in and is admin
-    if "user" not in session:
-        print("ERROR: User not in session")
-        return jsonify({"error": "Not logged in. Please log in again."}), 401
-
-    if not session.get("is_admin", False):
-        print(f"ERROR: User {session.get('user')} is not admin")
-        return jsonify({"error": "Only admins can update severity"}), 403
-
-    # Update report
     try:
         report = Report.query.get(report_id)
         if not report:
-            print(f"ERROR: Report {report_id} not found")
             return jsonify({"error": "Report not found"}), 404
 
-        old_severity = report.severity
         report.severity = new_severity
         db.session.commit()
-
-        print(f"SUCCESS: Updated report {report_id} from {old_severity} to {new_severity}")
         
         return jsonify({
             "status": "success",

@@ -5,9 +5,88 @@ let map;
 let heatLayer;
 let markersLayer = L.layerGroup();
 window.allReports = [];
+window.userProfile = null;
 
 let severityChart, barangayChart, trendChart;
 let autoRefreshTimer = null;
+
+
+// -----------------------------------------------
+// SEVERITY COLOR MAPPING
+// -----------------------------------------------
+const SEVERITY_COLORS = {
+    'Pending': { badge: 'severity-pending', marker: '#6c757d' },
+    'Low': { badge: 'severity-low', marker: '#28a745' },
+    'Moderate': { badge: 'severity-moderate', marker: '#ffc107' },
+    'High': { badge: 'severity-high', marker: '#fd7e14' },
+    'Critical': { badge: 'severity-critical', marker: '#dc3545' }
+};
+
+
+// -----------------------------------------------
+// LOAD USER PROFILE
+// -----------------------------------------------
+async function loadUserProfile() {
+    try {
+        const res = await fetch("/api/profile");
+        if (!res.ok) {
+            console.error("Failed to load profile");
+            return;
+        }
+
+        window.userProfile = await res.json();
+        
+        // Update profile button
+        const name = window.userProfile.full_name || window.userProfile.username || "User";
+        const initials = getInitials(name);
+        
+        document.getElementById("profileAvatar").textContent = initials;
+        document.getElementById("profileName").textContent = name.split(' ')[0]; // First name only
+        
+    } catch (err) {
+        console.error("Error loading profile:", err);
+    }
+}
+
+
+// -----------------------------------------------
+// GET INITIALS FROM NAME
+// -----------------------------------------------
+function getInitials(name) {
+    if (!name) return "?";
+    const parts = name.trim().split(' ');
+    if (parts.length === 1) return parts[0][0].toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+
+// -----------------------------------------------
+// SHOW PROFILE MODAL
+// -----------------------------------------------
+function showProfileModal() {
+    if (!window.userProfile) {
+        alert("Profile not loaded yet");
+        return;
+    }
+
+    const profile = window.userProfile;
+    const name = profile.full_name || profile.username || "Unknown";
+    const initials = getInitials(name);
+
+    document.getElementById("profileModalAvatar").textContent = initials;
+    document.getElementById("profileModalName").textContent = name;
+    document.getElementById("profileUsername").textContent = profile.username || "-";
+    document.getElementById("profileEmail").textContent = profile.email || "-";
+    document.getElementById("profilePhone").textContent = profile.phone || profile.contact || "-";
+    document.getElementById("profileRole").textContent = profile.is_admin ? "Admin" : "User";
+    document.getElementById("profileAddress").textContent = profile.address || "-";
+    document.getElementById("profileProvince").textContent = profile.province || "-";
+    document.getElementById("profileMunicipality").textContent = profile.municipality || "-";
+    document.getElementById("profileBarangay").textContent = profile.barangay || "-";
+
+    const modal = new bootstrap.Modal(document.getElementById("profileModal"));
+    modal.show();
+}
 
 
 // -----------------------------------------------
@@ -98,7 +177,6 @@ async function fetchReports() {
 
     const query = params.toString();
     const url = query ? `/api/reports?${query}` : `/api/reports`;
-    console.log("Fetching:", url);
 
     const res = await fetch(url);
     return await res.json();
@@ -138,10 +216,10 @@ function updateHeatmap() {
             let weight = null;
 
             if (sev === "Critical") weight = 1.0;
-            else if (sev === "High") weight = 0.9;
-            else if (sev === "Moderate") weight = 0.6;
+            else if (sev === "High") weight = 0.8;
+            else if (sev === "Moderate") weight = 0.5;
             else if (sev === "Low") weight = 0.3;
-            // Pending / unknown => no heat weight
+            // Pending => no heat
 
             if (weight === null) return null;
             return [r.lat, r.lng, weight];
@@ -166,13 +244,7 @@ function updateMarkers() {
         if (!r.lat || !r.lng) return;
 
         const sev = r.severity || "Pending";
-        let color;
-
-        if (sev === "Critical") color = "#6a00ff";
-        else if (sev === "High") color = "red";
-        else if (sev === "Moderate") color = "orange";
-        else if (sev === "Low") color = "green";
-        else color = "#6c757d"; // Pending
+        const color = SEVERITY_COLORS[sev]?.marker || '#6c757d';
 
         const marker = L.circleMarker([r.lat, r.lng], {
             radius: 9,
@@ -181,17 +253,46 @@ function updateMarkers() {
             fillOpacity: 0.85,
         });
 
+        // Fix photo URL - ensure it has proper path
+        const photoUrl = getPhotoUrl(r.photo);
+
         marker.bindPopup(`
             <strong>${r.barangay || ""}, ${r.municipality || ""}</strong><br>
             <small>${r.infestation_type || ""}</small><br>
             <b>Severity:</b> ${sev}<br>
             <b>Date:</b> ${r.date || ""}<br>
-            <img src="${r.photo || '/static/icons/icon-192.png'}" 
-                 style="width:120px;border-radius:5px;margin-top:4px;">
+            <img src="${photoUrl}" 
+                 style="width:120px;border-radius:5px;margin-top:4px;"
+                 onerror="this.src='/static/images/snail-logo.png'">
         `);
 
         markersLayer.addLayer(marker);
     });
+}
+
+
+// -----------------------------------------------
+// GET PROPER PHOTO URL
+// -----------------------------------------------
+function getPhotoUrl(photo) {
+    if (!photo) return '/static/images/snail-logo.png';
+    
+    // If it's already a full URL, return as-is
+    if (photo.startsWith('http://') || photo.startsWith('https://')) {
+        return photo;
+    }
+    
+    // If it starts with /uploads/, return as-is
+    if (photo.startsWith('/uploads/')) {
+        return photo;
+    }
+    
+    // If it's just a filename, prepend /uploads/
+    if (!photo.startsWith('/')) {
+        return '/uploads/' + photo;
+    }
+    
+    return photo;
 }
 
 
@@ -218,13 +319,14 @@ function updateKPIs() {
 // CHARTS
 // -----------------------------------------------
 function updateCharts() {
-    const severityCount = { Low: 0, Moderate: 0, High: 0, Critical: 0 };
+    const severityCount = { Low: 0, Moderate: 0, High: 0, Critical: 0, Pending: 0 };
     const barangayCount = {};
     const weekly = {};
 
     window.allReports.forEach(r => {
-        if (severityCount[r.severity] !== undefined) {
-            severityCount[r.severity]++;
+        const sev = r.severity || "Pending";
+        if (severityCount[sev] !== undefined) {
+            severityCount[sev]++;
         }
 
         if (r.barangay) {
@@ -249,10 +351,26 @@ function drawSeverityChart(data) {
     severityChart = new Chart(document.getElementById("severityChart"), {
         type: "pie",
         data: {
-            labels: ["Low", "Moderate", "High", "Critical"],
+            labels: ["Pending", "Low", "Moderate", "High", "Critical"],
             datasets: [{
-                data: [data.Low, data.Moderate, data.High, data.Critical],
+                data: [data.Pending, data.Low, data.Moderate, data.High, data.Critical],
+                backgroundColor: [
+                    SEVERITY_COLORS.Pending.marker,
+                    SEVERITY_COLORS.Low.marker,
+                    SEVERITY_COLORS.Moderate.marker,
+                    SEVERITY_COLORS.High.marker,
+                    SEVERITY_COLORS.Critical.marker
+                ]
             }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    position: 'bottom'
+                }
+            }
         }
     });
 }
@@ -261,13 +379,30 @@ function drawSeverityChart(data) {
 function drawBarangayChart(data) {
     if (barangayChart) barangayChart.destroy();
 
+    // Sort and take top 10
+    const sorted = Object.entries(data).sort((a, b) => b[1] - a[1]).slice(0, 10);
+    const labels = sorted.map(x => x[0]);
+    const values = sorted.map(x => x[1]);
+
     barangayChart = new Chart(document.getElementById("barangayChart"), {
         type: "bar",
         data: {
-            labels: Object.keys(data),
+            labels: labels,
             datasets: [{
-                data: Object.values(data),
+                label: 'Reports',
+                data: values,
+                backgroundColor: '#0d6efd'
             }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: { display: false }
+            },
+            scales: {
+                y: { beginAtZero: true }
+            }
         }
     });
 }
@@ -283,15 +418,30 @@ function drawTrendChart(data) {
         data: {
             labels: labels,
             datasets: [{
+                label: 'Daily Reports',
                 data: labels.map(d => data[d]),
+                borderColor: '#198754',
+                backgroundColor: 'rgba(25, 135, 84, 0.1)',
+                tension: 0.4,
+                fill: true
             }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: { display: false }
+            },
+            scales: {
+                y: { beginAtZero: true }
+            }
         }
     });
 }
 
 
 // -----------------------------------------------
-// RECENT REPORTS TABLE + PHOTO + EDIT
+// RECENT REPORTS TABLE + PHOTO + EDIT + DELETE
 // -----------------------------------------------
 function updateRecentReportsTable() {
     const tbody = document.getElementById("recentReportsTable");
@@ -303,44 +453,48 @@ function updateRecentReportsTable() {
     }
 
     const sorted = [...window.allReports].sort((a, b) => new Date(b.date) - new Date(a.date));
-    const recent = sorted.slice(0, 10);
+    const recent = sorted.slice(0, 20); // Show top 20
 
     recent.forEach(r => {
-        const photo = r.photo || "/static/icons/icon-192.png";
+        const photoUrl = getPhotoUrl(r.photo);
         const sev = r.severity || "Pending";
-        const sevClass =
-            sev === "Critical" ? "danger" :
-            sev === "High" ? "warning" :
-            sev === "Moderate" ? "info" :
-            sev === "Low" ? "success" :
-            "secondary";
+        const sevClass = SEVERITY_COLORS[sev]?.badge || 'severity-pending';
 
         const tr = document.createElement("tr");
         tr.innerHTML = `
             <td class="text-center">
-                <img src="${photo}"
+                <img src="${photoUrl}"
                      class="img-thumbnail shadow-sm"
                      style="width:60px;height:60px;object-fit:cover;cursor:pointer;border-radius:6px;"
-                     onclick="openPhotoModal('${photo}')">
+                     onerror="this.src='/static/images/snail-logo.png'"
+                     onclick="openPhotoModal('${photoUrl}')">
             </td>
             <td>${r.date || "-"}</td>
             <td>${r.province || "-"}</td>
             <td>${r.municipality || "-"}</td>
             <td>${r.barangay || "-"}</td>
             <td>
-                <span class="badge bg-${sevClass}">${sev}</span>
+                <span class="badge ${sevClass}">${sev}</span>
             </td>
             <td>${r.infestation_type || "-"}</td>
             <td>${r.reporter || "Unknown"}</td>
-            <td class="text-center">
-                <button 
-                    class="btn btn-sm btn-outline-primary"
-                    data-report-id="${r.id}"
-                    data-current-severity="${sev}"
-                    data-location="${(r.barangay || '')}, ${(r.municipality || '')}"
-                    onclick="openSeverityModalFromButton(this)">
-                    Set severity
-                </button>
+            <td>
+                <div class="action-btn-group">
+                    <button 
+                        class="btn-severity"
+                        data-report-id="${r.id}"
+                        data-current-severity="${sev}"
+                        data-location="${(r.barangay || '')}, ${(r.municipality || '')}"
+                        onclick="openSeverityModalFromButton(this)">
+                        Set
+                    </button>
+                    <button 
+                        class="btn-delete"
+                        data-report-id="${r.id}"
+                        onclick="openDeleteModal(${r.id})">
+                        Delete
+                    </button>
+                </div>
             </td>
         `;
         tbody.appendChild(tr);
@@ -352,7 +506,11 @@ function updateRecentReportsTable() {
 // PHOTO MODAL
 // -----------------------------------------------
 function openPhotoModal(photoUrl) {
-    document.getElementById("modalPhoto").src = photoUrl;
+    const imgUrl = photoUrl || '/static/images/snail-logo.png';
+    document.getElementById("modalPhoto").src = imgUrl;
+    document.getElementById("modalPhoto").onerror = function() {
+        this.src = '/static/images/snail-logo.png';
+    };
     new bootstrap.Modal(document.getElementById("photoModal")).show();
 }
 
@@ -416,8 +574,54 @@ async function saveSeverity() {
 
     } catch (err) {
         console.error("Failed to update severity:", err);
-        errorBox.textContent = "Failed to update severity. Please try again.";
+        errorBox.textContent = err.message || "Failed to update severity. Please try again.";
         errorBox.classList.remove("d-none");
+    }
+}
+
+
+// -----------------------------------------------
+// DELETE MODAL & CONFIRMATION
+// -----------------------------------------------
+function openDeleteModal(reportId) {
+    document.getElementById("deleteReportId").value = reportId;
+    const modal = new bootstrap.Modal(document.getElementById("deleteModal"));
+    modal.show();
+}
+
+async function confirmDelete() {
+    const reportId = document.getElementById("deleteReportId").value;
+
+    if (!reportId) {
+        alert("No report ID found");
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/report/${reportId}`, {
+            method: "DELETE"
+        });
+
+        const data = await res.json();
+
+        if (data.status !== "success") {
+            throw new Error(data.error || "Failed to delete report");
+        }
+
+        // Close modal
+        const modalEl = document.getElementById("deleteModal");
+        const modal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+        modal.hide();
+
+        // Refresh reports
+        await updateReports();
+
+        // Show success message
+        alert("Report deleted successfully!");
+
+    } catch (err) {
+        console.error("Failed to delete report:", err);
+        alert("Failed to delete report: " + err.message);
     }
 }
 
@@ -441,11 +645,14 @@ function startAutoRefresh(seconds) {
 // -----------------------------------------------
 window.addEventListener("load", async () => {
     initMap();
+    await loadUserProfile();
     await loadFilterDropdowns();
     await updateReports();
 
+    // Event listeners
     document.getElementById("filterBtn").onclick = updateReports;
     document.getElementById("manualRefresh").onclick = updateReports;
+    document.getElementById("profileBtn").onclick = showProfileModal;
 
     document.getElementById("refreshInterval").addEventListener("change", e =>
         startAutoRefresh(e.target.value)
