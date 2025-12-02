@@ -106,45 +106,94 @@ function initMap() {
 
 
 // -----------------------------------------------
-// LOAD FILTER DROPDOWNS
+// LOAD FILTER DROPDOWNS WITH CASCADING BEHAVIOR
 // -----------------------------------------------
 async function loadFilterDropdowns() {
     const provinceSelect = document.getElementById("provinceFilter");
     const municipalitySelect = document.getElementById("municipalityFilter");
     const barangaySelect = document.getElementById("barangayFilter");
 
-    provinceSelect.innerHTML = `<option value="All">All</option>`;
-    municipalitySelect.innerHTML = `<option value="All">All</option>`;
-    barangaySelect.innerHTML = `<option value="All">All</option>`;
+    // Reset all dropdowns
+    provinceSelect.innerHTML = `<option value="All">All Provinces</option>`;
+    municipalitySelect.innerHTML = `<option value="All">All Municipalities</option>`;
+    barangaySelect.innerHTML = `<option value="All">All Barangays</option>`;
+    
+    municipalitySelect.disabled = true;
+    barangaySelect.disabled = true;
 
     try {
-        const res = await fetch("/api/reports");
-        const data = await res.json();
+        // Load all provinces
+        const provinceRes = await fetch("/api/locations/provinces");
+        const provinceData = await provinceRes.json();
+        
+        if (provinceData.provinces) {
+            provinceData.provinces.forEach(province => {
+                provinceSelect.innerHTML += `<option value="${province}">${province}</option>`;
+            });
+        }
 
-        const provinces = new Set();
-        const municipalities = new Set();
-        const barangays = new Set();
-
-        data.forEach(r => {
-            if (r.province) provinces.add(r.province);
-            if (r.municipality) municipalities.add(r.municipality);
-            if (r.barangay) barangays.add(r.barangay);
+        // Set up cascading behavior
+        provinceSelect.addEventListener("change", async function() {
+            const selectedProvince = this.value;
+            
+            // Reset municipality and barangay
+            municipalitySelect.innerHTML = `<option value="All">All Municipalities</option>`;
+            barangaySelect.innerHTML = `<option value="All">All Barangays</option>`;
+            barangaySelect.disabled = true;
+            
+            if (selectedProvince === "All") {
+                municipalitySelect.disabled = true;
+                return;
+            }
+            
+            // Load municipalities for selected province
+            const munRes = await fetch(`/api/locations/municipalities?province=${encodeURIComponent(selectedProvince)}`);
+            const munData = await munRes.json();
+            
+            if (munData.municipalities && munData.municipalities.length > 0) {
+                municipalitySelect.disabled = false;
+                munData.municipalities.forEach(mun => {
+                    municipalitySelect.innerHTML += `<option value="${mun}">${mun}</option>`;
+                });
+            } else {
+                municipalitySelect.disabled = true;
+            }
         });
 
-        [...provinces].sort().forEach(p => {
-            provinceSelect.innerHTML += `<option value="${p}">${p}</option>`;
-        });
-
-        [...municipalities].sort().forEach(m => {
-            municipalitySelect.innerHTML += `<option value="${m}">${m}</option>`;
-        });
-
-        [...barangays].sort().forEach(b => {
-            barangaySelect.innerHTML += `<option value="${b}">${b}</option>`;
+        municipalitySelect.addEventListener("change", async function() {
+            const selectedProvince = provinceSelect.value;
+            const selectedMunicipality = this.value;
+            
+            // Reset barangay
+            barangaySelect.innerHTML = `<option value="All">All Barangays</option>`;
+            
+            if (selectedMunicipality === "All") {
+                barangaySelect.disabled = true;
+                return;
+            }
+            
+            // Load barangays for selected municipality
+            let url = `/api/locations/barangays?municipality=${encodeURIComponent(selectedMunicipality)}`;
+            if (selectedProvince !== "All") {
+                url += `&province=${encodeURIComponent(selectedProvince)}`;
+            }
+            
+            const brgyRes = await fetch(url);
+            const brgyData = await brgyRes.json();
+            
+            if (brgyData.barangays && brgyData.barangays.length > 0) {
+                barangaySelect.disabled = false;
+                brgyData.barangays.forEach(brgy => {
+                    barangaySelect.innerHTML += `<option value="${brgy}">${brgy}</option>`;
+                });
+            } else {
+                barangaySelect.disabled = true;
+            }
         });
 
     } catch (err) {
         console.error("Failed loading dropdowns:", err);
+        alert("Failed to load location filters. Please refresh the page.");
     }
 }
 

@@ -555,6 +555,157 @@ def get_reports():
 
 
 # =====================================================================
+# REPORTS API
+# =====================================================================
+@app.route("/api/barangays", methods=["GET"])
+def get_barangays():
+    # ... existing code ...
+
+@app.route("/api/reports", methods=["GET"])
+def get_reports():
+    # ... existing code ...
+
+# =====================================================================
+# PHILIPPINE LOCATIONS API - ADD THIS NEW SECTION HERE
+# =====================================================================
+
+# Complete list of Philippine provinces (81 provinces + NCR)
+PHILIPPINE_PROVINCES = [
+    "Abra", "Agusan del Norte", "Agusan del Sur", "Aklan", "Albay",
+    "Antique", "Apayao", "Aurora", "Basilan", "Bataan", "Batanes",
+    "Batangas", "Benguet", "Biliran", "Bohol", "Bukidnon", "Bulacan",
+    "Cagayan", "Camarines Norte", "Camarines Sur", "Camiguin", "Capiz",
+    "Catanduanes", "Cavite", "Cebu", "Cotabato", "Davao de Oro",
+    "Davao del Norte", "Davao del Sur", "Davao Occidental", "Davao Oriental",
+    "Dinagat Islands", "Eastern Samar", "Guimaras", "Ifugao", "Ilocos Norte",
+    "Ilocos Sur", "Iloilo", "Isabela", "Kalinga", "La Union", "Laguna",
+    "Lanao del Norte", "Lanao del Sur", "Leyte", "Maguindanao del Norte",
+    "Maguindanao del Sur", "Marinduque", "Masbate", "Metro Manila",
+    "Misamis Occidental", "Misamis Oriental", "Mountain Province",
+    "Negros Occidental", "Negros Oriental", "Northern Samar", "Nueva Ecija",
+    "Nueva Vizcaya", "Occidental Mindoro", "Oriental Mindoro", "Palawan",
+    "Pampanga", "Pangasinan", "Quezon", "Quirino", "Rizal", "Romblon",
+    "Samar", "Sarangani", "Siquijor", "Sorsogon", "South Cotabato",
+    "Southern Leyte", "Sultan Kudarat", "Sulu", "Surigao del Norte",
+    "Surigao del Sur", "Tarlac", "Tawi-Tawi", "Zambales",
+    "Zamboanga del Norte", "Zamboanga del Sur", "Zamboanga Sibugay"
+]
+
+# Sample municipalities for major provinces
+PHILIPPINE_LOCATIONS = {
+    "Ilocos Norte": [
+        "Adams", "Bacarra", "Badoc", "Bangui", "Banna", "Batac City",
+        "Burgos", "Carasi", "Currimao", "Dingras", "Dumalneg", "Laoag City",
+        "Marcos", "Nueva Era", "Pagudpud", "Paoay", "Pasuquin", "Piddig",
+        "Pinili", "San Nicolas", "Sarrat", "Solsona", "Vintar"
+    ],
+    "Ilocos Sur": [
+        "Alilem", "Banayoyo", "Bantay", "Burgos", "Cabugao", "Candon City",
+        "Caoayan", "Cervantes", "Galimuyod", "Gregorio del Pilar", "Lidlidda",
+        "Magsingal", "Nagbukel", "Narvacan", "Quirino", "Salcedo", "San Emilio",
+        "San Esteban", "San Ildefonso", "San Juan", "San Vicente", "Santa",
+        "Santa Catalina", "Santa Cruz", "Santa Lucia", "Santa Maria",
+        "Santiago", "Santo Domingo", "Sigay", "Sinait", "Sugpon", "Suyo",
+        "Tagudin", "Vigan City"
+    ],
+    "La Union": [
+        "Agoo", "Aringay", "Bacnotan", "Bagulin", "Balaoan", "Bangar",
+        "Bauang", "Burgos", "Caba", "Luna", "Naguilian", "Pugo",
+        "Rosario", "San Fernando City", "San Gabriel", "San Juan",
+        "Santo Tomas", "Santol", "Sudipen", "Tubao"
+    ],
+    "Pangasinan": [
+        "Agno", "Aguilar", "Alaminos City", "Alcala", "Anda", "Asingan",
+        "Balungao", "Bani", "Basista", "Bautista", "Bayambang", "Binalonan",
+        "Binmaley", "Bolinao", "Bugallon", "Burgos", "Calasiao", "Dagupan City",
+        "Dasol", "Infanta", "Labrador", "Laoac", "Lingayen", "Mabini",
+        "Malasiqui", "Manaoag", "Mangaldan", "Mangatarem", "Mapandan", "Natividad",
+        "Pozorrubio", "Rosales", "San Carlos City", "San Fabian", "San Jacinto",
+        "San Manuel", "San Nicolas", "San Quintin", "Santa Barbara", "Santa Maria",
+        "Santo Tomas", "Sison", "Sual", "Tayug", "Umingan", "Urbiztondo",
+        "Urdaneta City", "Villasis"
+    ],
+    "Metro Manila": [
+        "Caloocan City", "Las Piñas City", "Makati City", "Malabon City",
+        "Mandaluyong City", "Manila", "Marikina City", "Muntinlupa City",
+        "Navotas City", "Parañaque City", "Pasay City", "Pasig City",
+        "Pateros", "Quezon City", "San Juan City", "Taguig City", "Valenzuela City"
+    ],
+    # Add more provinces as needed
+}
+
+
+@app.route("/api/locations/provinces", methods=["GET"])
+def get_provinces():
+    """Get all provinces in the Philippines (static list)"""
+    return jsonify({"provinces": sorted(PHILIPPINE_PROVINCES)})
+
+
+@app.route("/api/locations/municipalities", methods=["GET"])
+def get_municipalities():
+    """Get municipalities/cities for a specific province"""
+    province = request.args.get("province")
+    
+    if not province:
+        return jsonify({"error": "Province parameter required"}), 400
+    
+    try:
+        # First try static data
+        if province in PHILIPPINE_LOCATIONS:
+            return jsonify({"municipalities": sorted(PHILIPPINE_LOCATIONS[province])})
+        
+        # Fallback: Get from database (actual reports)
+        municipalities = db.session.query(Report.municipality).distinct().filter(
+            Report.province == province,
+            Report.municipality.isnot(None)
+        ).order_by(Report.municipality).all()
+        
+        municipality_list = sorted([m[0] for m in municipalities if m[0]])
+        
+        return jsonify({"municipalities": municipality_list})
+        
+    except Exception as e:
+        print(f"Error fetching municipalities: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/locations/barangays", methods=["GET"])
+def get_barangays():
+    """Get barangays for a specific municipality/city"""
+    province = request.args.get("province")
+    municipality = request.args.get("municipality")
+    
+    if not municipality:
+        return jsonify({"error": "Municipality parameter required"}), 400
+    
+    try:
+        # Get barangays from database (actual reports)
+        query = db.session.query(Report.barangay).distinct().filter(
+            Report.municipality == municipality,
+            Report.barangay.isnot(None)
+        )
+        
+        if province:
+            query = query.filter(Report.province == province)
+        
+        barangays = query.order_by(Report.barangay).all()
+        barangay_list = sorted([b[0] for b in barangays if b[0]])
+        
+        return jsonify({"barangays": barangay_list})
+        
+    except Exception as e:
+        print(f"Error fetching barangays: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# =====================================================================
+# SUBMIT REPORT (Mobile App)
+# =====================================================================
+@app.route("/api/report", methods=["POST"])
+def submit_report():
+    # ... existing code continues ...
+
+# =====================================================================
 # SUBMIT REPORT (Mobile App)
 # =====================================================================
 @app.route("/api/report", methods=["POST"])
