@@ -491,82 +491,8 @@ def get_barangays():
     return jsonify(brgys)
 
 
-@app.route("/api/reports", methods=["GET"])
-def get_reports():
-    query = Report.query
-
-    province = request.args.get("province")
-    municipality = request.args.get("municipality")
-    barangay = request.args.get("barangay")
-    severity = request.args.get("severity")
-    infestation_type = request.args.get("infestation_type")
-    start_date = request.args.get("start_date")
-    end_date = request.args.get("end_date")
-
-    if province:
-        query = query.filter_by(province=province)
-    if municipality:
-        query = query.filter_by(municipality=municipality)
-    if barangay:
-        query = query.filter_by(barangay=barangay)
-    if severity:
-        query = query.filter_by(severity=severity)
-    if infestation_type:
-        query = query.filter_by(infestation_type=infestation_type)
-
-    if start_date:
-        try:
-            query = query.filter(
-                Report.date >= datetime.strptime(start_date, "%Y-%m-%d")
-            )
-        except Exception:
-            pass
-
-    if end_date:
-        try:
-            query = query.filter(
-                Report.date
-                <= datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
-            )
-        except Exception:
-            pass
-
-    reports = query.order_by(Report.date.desc()).all()
-
-    return jsonify(
-        [
-            {
-                "id": r.id,
-                "reporter": r.reporter,
-                "province": r.province,
-                "municipality": r.municipality,
-                "barangay": r.barangay,
-                "severity": r.severity,
-                "infestation_type": r.infestation_type,
-                "lat": r.lat,
-                "lng": r.lng,
-                "description": r.description,
-                "photo": r.photo,
-                "date": r.date.strftime("%Y-%m-%d %H:%M:%S"),
-            }
-            for r in reports
-        ]
-    )
-
-
 # =====================================================================
-# REPORTS API
-# =====================================================================
-@app.route("/api/barangays", methods=["GET"])
-def get_barangays():
-    # ... existing code ...
-
-@app.route("/api/reports", methods=["GET"])
-def get_reports():
-    # ... existing code ...
-
-# =====================================================================
-# PHILIPPINE LOCATIONS API - ADD THIS NEW SECTION HERE
+# PHILIPPINE LOCATIONS API - NEW SECTION
 # =====================================================================
 
 # Complete list of Philippine provinces (81 provinces + NCR)
@@ -631,13 +557,12 @@ PHILIPPINE_LOCATIONS = {
         "Navotas City", "Parañaque City", "Pasay City", "Pasig City",
         "Pateros", "Quezon City", "San Juan City", "Taguig City", "Valenzuela City"
     ],
-    # Add more provinces as needed
 }
 
 
 @app.route("/api/locations/provinces", methods=["GET"])
 def get_provinces():
-    """Get all provinces in the Philippines (static list)"""
+    """Get all provinces in the Philippines"""
     return jsonify({"provinces": sorted(PHILIPPINE_PROVINCES)})
 
 
@@ -670,7 +595,7 @@ def get_municipalities():
 
 
 @app.route("/api/locations/barangays", methods=["GET"])
-def get_barangays():
+def get_barangays_by_municipality():
     """Get barangays for a specific municipality/city"""
     province = request.args.get("province")
     municipality = request.args.get("municipality")
@@ -698,12 +623,68 @@ def get_barangays():
         return jsonify({"error": str(e)}), 500
 
 
-# =====================================================================
-# SUBMIT REPORT (Mobile App)
-# =====================================================================
-@app.route("/api/report", methods=["POST"])
-def submit_report():
-    # ... existing code continues ...
+@app.route("/api/reports", methods=["GET"])
+def get_reports():
+    query = Report.query
+
+    province = request.args.get("province")
+    municipality = request.args.get("municipality")
+    barangay = request.args.get("barangay")
+    severity = request.args.get("severity")
+    infestation_type = request.args.get("infestation_type")
+    start_date = request.args.get("start_date")
+    end_date = request.args.get("end_date")
+
+    if province:
+        query = query.filter_by(province=province)
+    if municipality:
+        query = query.filter_by(municipality=municipality)
+    if barangay:
+        query = query.filter_by(barangay=barangay)
+    if severity:
+        query = query.filter_by(severity=severity)
+    if infestation_type:
+        query = query.filter_by(infestation_type=infestation_type)
+
+    if start_date:
+        try:
+            query = query.filter(
+                Report.date >= datetime.strptime(start_date, "%Y-%m-%d")
+            )
+        except Exception:
+            pass
+
+    if end_date:
+        try:
+            query = query.filter(
+                Report.date
+                <= datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+            )
+        except Exception:
+            pass
+
+    reports = query.order_by(Report.date.desc()).all()
+
+    return jsonify(
+        [
+            {
+                "id": r.id,
+                "reporter": r.reporter,
+                "province": r.province,
+                "municipality": r.municipality,
+                "barangay": r.barangay,
+                "severity": r.severity,
+                "infestation_type": r.infestation_type,
+                "lat": r.lat,
+                "lng": r.lng,
+                "description": r.description,
+                "photo": r.photo,
+                "date": r.date.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            for r in reports
+        ]
+    )
+
 
 # =====================================================================
 # SUBMIT REPORT (Mobile App)
